@@ -19,6 +19,7 @@ class LangDet(Enum):
     CH = "ch"
     EN = "en"
     MULTI = "multi"
+    ID = "id"
 
 
 class LangCls(Enum):
@@ -42,6 +43,7 @@ class LangRec(Enum):
     ESLAV = "eslav"
     TH = "th"
     EL = "el"
+    ID = "id"
 
 
 class OCRVersion(Enum):

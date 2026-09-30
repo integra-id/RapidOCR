@@ -1,0 +1,50 @@
+# Optional GPU image. The default production image remains Dockerfile.rapidocr-id (CPU).
+# If CUDA is missing at runtime, RAPIDOCR_PROVIDER=cuda falls back to CPU.
+
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ARG RAPIDOCR_ID_VERSION=1.5.0
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    RAPIDOCR_MODEL_DIR=/opt/rapidocr/models \
+    RAPIDOCR_ID_VERSION=${RAPIDOCR_ID_VERSION} \
+    RAPIDOCR_PROVIDER=cuda \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        libglib2.0-0 \
+        libgomp1 \
+        libgl1 \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src/python
+
+COPY python/pyproject.toml python/requirements.txt python/requirements-service.txt \
+     python/README.md python/LICENSE python/MODEL_LICENSES.md ./
+COPY python/rapidocr ./rapidocr
+
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -r requirements-service.txt \
+    && python -m pip uninstall -y onnxruntime \
+    && python -m pip install --no-cache-dir "onnxruntime-gpu>=1.19" \
+    && python -m pip install --no-cache-dir --no-deps . \
+    && mkdir -p "${RAPIDOCR_MODEL_DIR}" \
+    && python -m rapidocr.service.preload \
+    && rm -rf /src /root/.cache/pip
+
+RUN useradd --create-home --uid 10001 rapidocr \
+    && mkdir -p /data/jobs \
+    && chown -R rapidocr:rapidocr "${RAPIDOCR_MODEL_DIR}" /data/jobs
+USER rapidocr
+WORKDIR /home/rapidocr
+
+EXPOSE 8000
+
+CMD ["python", "-m", "uvicorn", "rapidocr.service.app:app", "--host", "0.0.0.0", "--port", "8000"]

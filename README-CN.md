@@ -32,7 +32,7 @@
 
 RapidOCR 是一款完全开源免费、支持离线快速部署的多平台多语言 OCR 工具，以极致的速度与广泛的兼容性为核心优势。
 
-**支持语言：** 默认支持中英文识别。其他支持的语言，参见文档：[模型列表](https://rapidai.github.io/RapidOCRDocs/main/model_list/)
+**支持语言：** 默认语言为印尼语（Bahasa Indonesia，`id`）。默认 PP-OCRv6 仍使用共享的多语言模型，中文、英文及其他语言可通过 `lang_type` 继续使用。其他支持的语言参见文档：[模型列表](https://rapidai.github.io/RapidOCRDocs/main/model_list/)
 
 **项目缘起：** 鉴于 [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) 在工程化方面仍有优化空间，为简化并加速 OCR 模型在各类终端设备上的推理部署，我们创新性地将 PaddleOCR 中的模型转换为高度兼容的 ONNX 格式，并基于 Python, C++, Java, C# 等多种编程语言，实现了跨平台的无缝移植，让开发者能够轻松上手、高效集成。
 
@@ -70,6 +70,8 @@ print(result)
 
 result.vis("vis_result.jpg")
 ```
+
+印尼身份证（KTP）可用 `parse_ktp` 把 OCR 行解析成字段，说明见 [docs/ktp.md](docs/ktp.md)。
 
 ### 📚 文档
 

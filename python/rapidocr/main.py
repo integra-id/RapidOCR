@@ -438,7 +438,9 @@ def parse_args(arg_list: Optional[List[str]] = None):
     parser.add_argument(
         "--lang_type",
         type=str,
-        default="ch",
+        default="id",
+        help="OCR language. Default is Bahasa Indonesia (id). "
+        "Other languages stay available, for example ch, en, or japan.",
     )
     parser.add_argument("-vis", "--vis_res", action="store_true", default=False)
     parser.add_argument("--vis_save_dir", type=Path, default=".")

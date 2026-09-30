@@ -31,9 +31,7 @@ def model_registry():
     return load_yaml(models_path)
 
 
-def test_default_wheel_assets_use_routed_ppocrv6_models(
-    default_config, model_registry
-):
+def test_default_wheel_assets_use_routed_ppocrv6_models(default_config, model_registry):
     specs = resolve_model_specs(default_config)
     assets = resolve_assets(specs, model_registry)
     asset_paths = {asset.relative_path.as_posix() for asset in assets}
@@ -55,6 +53,14 @@ def test_default_wheel_assets_use_routed_ppocrv6_models(
         (
             ModelSpec("onnxruntime", "PP-OCRv6", "rec", "ch", "small"),
             "PP-OCRv6_rec_small.onnx",
+        ),
+        (
+            ModelSpec("onnxruntime", "PP-OCRv6", "rec", "id", "small"),
+            "PP-OCRv6_rec_small.onnx",
+        ),
+        (
+            ModelSpec("onnxruntime", "PP-OCRv5", "rec", "id", "mobile"),
+            "latin_PP-OCRv5_rec_mobile.onnx",
         ),
         (
             ModelSpec("onnxruntime", "PP-OCRv4", "cls", "ch", "mobile"),

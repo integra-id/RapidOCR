@@ -1,0 +1,50 @@
+# rapidocr-id: portable CPU image for Indonesian OCR.
+# Models are downloaded during this build, not on the first request:
+#   PP-OCRv6_det_small.onnx                  detection, lang id, ~9.5 MB
+#   ch_ppocr_mobile_v2.0_cls_mobile.onnx     angle cls, shared,  ~0.6 MB
+#   PP-OCRv6_rec_small.onnx                  recognition, lang id, ~20.3 MB
+
+FROM python:3.11-slim-bookworm
+
+ARG RAPIDOCR_ID_VERSION=1.4.0
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    RAPIDOCR_MODEL_DIR=/opt/rapidocr/models \
+    RAPIDOCR_ID_VERSION=${RAPIDOCR_ID_VERSION} \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
+
+# PDF rasterization uses pypdfium2 from requirements-service.txt. That wheel
+# bundles pdfium, so poppler-utils is not installed.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libglib2.0-0 \
+        libgomp1 \
+        libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src/python
+
+COPY python/pyproject.toml python/requirements.txt python/requirements-service.txt \
+     python/README.md python/LICENSE python/MODEL_LICENSES.md ./
+COPY python/rapidocr ./rapidocr
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements-service.txt \
+    && pip install --no-cache-dir --no-deps . \
+    && mkdir -p "${RAPIDOCR_MODEL_DIR}" \
+    && python -m rapidocr.service.preload \
+    && rm -rf /src /root/.cache/pip
+
+RUN useradd --create-home --uid 10001 rapidocr \
+    && mkdir -p /data/jobs \
+    && chown -R rapidocr:rapidocr "${RAPIDOCR_MODEL_DIR}" /data/jobs
+USER rapidocr
+WORKDIR /home/rapidocr
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+
+CMD ["uvicorn", "rapidocr.service.app:app", "--host", "0.0.0.0", "--port", "8000"]

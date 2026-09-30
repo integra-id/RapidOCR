@@ -1,0 +1,13 @@
+.git
+.github
+**/.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/*.egg-info
+python/rapidocr/models
+python/benchmark_*
+*.engine
+.mcp.json

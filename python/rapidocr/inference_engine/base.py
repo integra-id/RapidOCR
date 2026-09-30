@@ -11,7 +11,7 @@ import numpy as np
 from omegaconf import OmegaConf
 
 from ..utils.log import logger
-from ..utils.model_resolver import normalize_lang, resolve_model_key
+from ..utils.model_resolver import model_lang_prefix, normalize_lang, resolve_model_key
 from ..utils.typings import EngineType, ModelType, OCRVersion, TaskType
 from ..utils.utils import import_package
 
@@ -145,14 +145,18 @@ class InferSession(abc.ABC):
                 f"Unsupported configuration: {engine_type}.{ocr_version}.{task_type}.{lang_type}.{model_type}"
             )
 
+        lookup_lang = model_lang_prefix(
+            file_info.task_type, file_info.ocr_version, file_info.lang_type
+        )
+
         # 优先查找 server 模型
         if model_type == ModelType.SERVER.value:
             for k in model_dict:
-                if k.startswith(lang_type) and model_type in k:
+                if k.startswith(lookup_lang) and model_type in k:
                     return model_dict[k]
 
         for k in model_dict:
-            if k.startswith(lang_type) and model_type in k:
+            if k.startswith(lookup_lang) and model_type in k:
                 return model_dict[k]
 
         logger.error(

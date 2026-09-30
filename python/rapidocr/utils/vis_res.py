@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .download_file import DownloadFile, DownloadFileInput
 from .load_image import LoadImage
 from .log import logger
-from .model_resolver import normalize_lang
+from .model_resolver import canonicalize_lang
 from .typings import LangRec
 
 root_dir = Path(__file__).resolve().parent.parent
@@ -49,7 +49,7 @@ def get_font_path(
         DownloadFile.run(default_input_params)
         return str(DEFAULT_FONT_PATH)
 
-    lang_type = normalize_lang(lang_type)
+    lang_type = canonicalize_lang(lang_type)
 
     if font_path is None:
         # 指定了语种，但是没有指定字体文件，根据语种选择字体文件

@@ -12,7 +12,11 @@ from typing import Iterable, List, Optional
 PYTHON_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PYTHON_ROOT))
 
-from rapidocr.utils.model_resolver import normalize_lang, resolve_model_key
+from rapidocr.utils.model_resolver import (
+    model_lang_prefix,
+    normalize_lang,
+    resolve_model_key,
+)
 from rapidocr.utils.typings import ModelType, OCRVersion, TaskType
 
 DEFAULT_CONFIG_YAML = PYTHON_ROOT / "rapidocr" / "config.yaml"
@@ -164,7 +168,13 @@ def select_model_info(spec: ModelSpec, registry: dict) -> dict:
             )
         return model_info
 
-    lang = normalize_lang(spec.lang)
+    try:
+        lang = model_lang_prefix(
+            TaskType(spec.task), OCRVersion(spec.ocr_version), spec.lang
+        )
+    except ValueError:
+        lang = normalize_lang(spec.lang)
+
     if spec.model_type == ModelType.SERVER.value:
         for model_name, model_info in task_models.items():
             if model_name.startswith(lang) and spec.model_type in model_name:
@@ -354,7 +364,7 @@ def _get_content_length(value: Optional[str]) -> Optional[int]:
 
 def _print_progress(downloaded: int, total_size: Optional[int]) -> None:
     if not total_size:
-         return
+        return
     percent = downloaded / total_size * 100
     print(
         f"\r  {downloaded / 1024 / 1024:.1f}MB / "
