@@ -1,5 +1,11 @@
 # Docker Development Environments
 
+The engine images in this folder are for development and testing: Compose mounts the source tree and the container starts a shell. For a portable Indonesian KTP OCR service with models baked in, see [docs/docker-ktp.md](../docs/docker-ktp.md).
+
+```bash
+docker compose -f docker/docker-compose.ktp.yml up --build
+```
+
 Pre-configured Docker images for developing and testing RapidOCR with each supported inference engine.
 
 ## Prerequisites
