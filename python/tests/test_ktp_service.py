@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from rapidocr.postprocess import KTP_FIELDS
 from rapidocr.service.app import create_app
+from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,7 +41,21 @@ def test_health_reports_indonesian_models_ready():
         response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "lang": "id", "models_ready": True}
+    assert response.json() == {
+        "status": "ok",
+        "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
+        "lang": "id",
+        "models_ready": True,
+    }
+
+
+def test_version_endpoint():
+    with _client() as client:
+        response = client.get("/version")
+
+    assert response.status_code == 200
+    assert response.json() == {"service": "rapidocr-id", "version": "1.0.0"}
 
 
 def test_ocr_returns_lines():
@@ -57,9 +72,13 @@ def test_ocr_returns_lines():
     assert body["elapse"] == 0.01
 
 
-def test_ktp_returns_structured_fields():
+def test_ktp_parser_is_secondary_endpoint():
     with _client() as client:
         response = client.post(
+            "/parse/ktp",
+            files={"file": ("ktp.jpg", b"\xff\xd8\xff\xd9", "image/jpeg")},
+        )
+        alias = client.post(
             "/ktp",
             files={"file": ("ktp.jpg", b"\xff\xd8\xff\xd9", "image/jpeg")},
         )
@@ -69,6 +88,8 @@ def test_ktp_returns_structured_fields():
     assert tuple(fields) == KTP_FIELDS
     assert fields["nik"] == "3327011112890001"
     assert fields["nama"] == "RISWANDI"
+    assert alias.status_code == 200
+    assert alias.json()["fields"]["nik"] == fields["nik"]
 
 
 def test_empty_upload_is_rejected():
@@ -82,10 +103,22 @@ def test_empty_upload_is_rejected():
 
 
 def test_production_image_bakes_models_and_publishes_port():
-    dockerfile = (ROOT / "docker" / "Dockerfile.ktp").read_text(encoding="utf-8")
-    compose = (ROOT / "docker" / "docker-compose.ktp.yml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker" / "Dockerfile.rapidocr-id").read_text(
+        encoding="utf-8"
+    )
+    compose = (ROOT / "docker" / "docker-compose.rapidocr-id.yml").read_text(
+        encoding="utf-8"
+    )
+    workflow = (ROOT / ".github" / "workflows" / "publish-rapidocr-id.yml").read_text(
+        encoding="utf-8"
+    )
 
     assert "RAPIDOCR_MODEL_DIR=/opt/rapidocr/models" in dockerfile
     assert "python -m rapidocr.service.preload" in dockerfile
+    assert "PP-OCRv6_det_small.onnx" in dockerfile
+    assert "PP-OCRv6_rec_small.onnx" in dockerfile
+    assert "rapidocr-id:" in compose
     assert "8000:8000" in compose
     assert "volumes:" not in compose
+    assert "ghcr.io/integra-id/rapidocr-id" in workflow
+    assert 'tags:\n      - "v*"' in workflow or '- "v*"' in workflow

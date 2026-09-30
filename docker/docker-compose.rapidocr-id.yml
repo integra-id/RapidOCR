@@ -1,0 +1,16 @@
+# rapidocr-id production service. Source is not mounted. ONNX models are
+# already inside the image from the build.
+services:
+  rapidocr-id:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rapidocr-id
+      args:
+        RAPIDOCR_ID_VERSION: "1.0.0"
+    image: rapidocr-id:1.0.0
+    ports:
+      - "8000:8000"
+    environment:
+      RAPIDOCR_MODEL_DIR: /opt/rapidocr/models
+      RAPIDOCR_ID_VERSION: "1.0.0"
+    restart: unless-stopped

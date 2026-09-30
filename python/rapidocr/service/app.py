@@ -1,9 +1,10 @@
 # -*- encoding: utf-8 -*-
-"""HTTP API for Indonesian KTP OCR.
+"""HTTP API for the rapidocr-id service.
 
-The process loads the ONNX models once at startup. Point
-``RAPIDOCR_MODEL_DIR`` at a directory that already contains those files so a
-request never has to download them.
+General Indonesian OCR is the primary API (``/ocr``, ``/health``). Document
+parsers such as KTP live under ``/parse``. The process loads ONNX models at
+startup from ``RAPIDOCR_MODEL_DIR``. The production image downloads those
+files while it is built, so a request does not fetch them.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from rapidocr.postprocess import KTP_FIELDS, parse_ktp
+from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
 from rapidocr.utils.load_image import LoadImageError
 from rapidocr.utils.log import logger
 
@@ -55,7 +57,7 @@ def _touch_pipeline(engine) -> None:
     image = np.full((64, 320, 3), 255, dtype=np.uint8)
     cv2.putText(
         image,
-        "KTP",
+        "OCR",
         (8, 44),
         cv2.FONT_HERSHEY_SIMPLEX,
         1.0,
@@ -107,24 +109,31 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         yield
         app.state.ready = False
 
-    app = FastAPI(title="RapidOCR KTP", version="1", lifespan=lifespan)
+    app = FastAPI(title=SERVICE_NAME, version=SERVICE_VERSION, lifespan=lifespan)
 
     @app.get("/health")
     def health():
         ready = bool(getattr(app.state, "ready", False))
         return {
             "status": "ok" if ready else "starting",
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
             "lang": "id",
             "models_ready": ready,
         }
+
+    @app.get("/version")
+    def version():
+        return {"service": SERVICE_NAME, "version": SERVICE_VERSION}
 
     @app.post("/ocr")
     async def ocr(file: UploadFile = File(...)):
         result = _run(app, await _read_upload(file))
         return {"lines": _lines_from_result(result), "elapse": _elapse(result)}
 
-    @app.post("/ktp")
-    async def ktp(file: UploadFile = File(...)):
+    @app.post("/parse/ktp", tags=["parsers"])
+    @app.post("/ktp", tags=["parsers"], include_in_schema=False)
+    async def parse_ktp_document(file: UploadFile = File(...)):
         payload = await _read_upload(file)
         result = _run(app, payload)
         fields = parse_ktp(result)
