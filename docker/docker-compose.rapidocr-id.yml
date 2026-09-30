@@ -6,13 +6,13 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.rapidocr-id
       args:
-        RAPIDOCR_ID_VERSION: "1.4.0"
-    image: rapidocr-id:1.4.0
+        RAPIDOCR_ID_VERSION: "1.5.0"
+    image: rapidocr-id:1.5.0
     ports:
       - "8000:8000"
     environment:
       RAPIDOCR_MODEL_DIR: /opt/rapidocr/models
-      RAPIDOCR_ID_VERSION: "1.4.0"
+      RAPIDOCR_ID_VERSION: "1.5.0"
       RAPIDOCR_JOB_DIR: /data/jobs
       RAPIDOCR_JOB_TTL_HOURS: "24"
     volumes:

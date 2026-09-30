@@ -35,3 +35,9 @@ build-all:
 
 clean:
 	docker compose -f $(COMPOSE_FILE) down --rmi local --volumes
+
+.PHONY: install-id-model
+install-id-model:
+	@echo "Copy an exported ONNX file into the rapidocr-id model directory."
+	@echo "This does not train a model. See docs/finetune-id.md."
+	python python/tools/prepare_id_model.py $(ARGS)

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.5.0] - 2026-09-30
+
+### Added
+
+- Optional GPU image `docker/Dockerfile.rapidocr-id.gpu`. The default image stays ONNX Runtime CPU. `RAPIDOCR_PROVIDER=cuda` requests CUDA and falls back to CPU when the provider is unavailable. `/health` and `/version` report `provider`.
+- Best-effort seal and signature regions in OCR and parse JSON as `artifacts`, plus `POST /detect/artifacts`. Detection uses color, shape, and nearby words such as "stempel" or "tanda tangan". Logos can be false positives.
+- `format=csv` was already present; table export remains a line-box heuristic. Markdown and HTML still use that layout.
+- `docs/finetune-id.md` and `make install-id-model` describe how to fine-tune with PaddleOCR, export ONNX, and copy it into the model directory. No new weights are shipped.
+
 ## [1.4.0] - 2026-09-30
 
 ### Added
@@ -60,6 +69,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - HTTP API: `GET /health`, `GET /version`, `POST /ocr`, and the KTP parser at `POST /parse/ktp` (alias `POST /ktp`).
 - GitHub Actions workflow publishes `vX.Y.Z` to `ghcr.io/integra-id/rapidocr-id` as `X.Y.Z`, `X.Y`, `X`, and `latest`.
 
+[1.5.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.5.0
 [1.4.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.4.0
 [1.3.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.3.0
 [1.2.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.2.0

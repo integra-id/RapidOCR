@@ -77,7 +77,7 @@ def test_pdf_formats():
     assert json_response.headers["content-type"].startswith("application/json")
     body = json_response.json()
     assert body["service"] == "rapidocr-id"
-    assert body["version"] == "1.4.0"
+    assert body["version"] == "1.5.0"
     assert body["page_count"] == 2
     assert body["elapse"] == 0.5
     assert body["pages"][0]["page"] == 1
@@ -117,7 +117,7 @@ def test_multi_format_uses_one_ocr_pass():
     assert combined.headers["content-type"].startswith("application/json")
     body = combined.json()
     assert body["service"] == "rapidocr-id"
-    assert body["version"] == "1.4.0"
+    assert body["version"] == "1.5.0"
     assert body["page_count"] == 2
     assert body["elapse"] == 0.5
     assert set(body["outputs"]) == {"json", "markdown", "html"}

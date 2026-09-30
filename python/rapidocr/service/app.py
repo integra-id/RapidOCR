@@ -31,6 +31,7 @@ from rapidocr.postprocess import (
 )
 from rapidocr.postprocess.fuzzy_labels import compact as compact_text
 from rapidocr.service.preprocess import apply_crop, parse_preprocess, preprocess_bgr
+from rapidocr.service.artifacts import detect_artifacts
 from rapidocr.service.auth import install_guard
 from rapidocr.service.jobs import JobStore, expand_uploads, job_root
 from rapidocr.service.layout import detect_tables, layout_html, render_csv
@@ -46,6 +47,7 @@ from rapidocr.service.pdf import (
     render_markdown,
     render_text,
 )
+from rapidocr.service.runtime import active_provider, engine_params, requested_provider
 from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
 from rapidocr.utils.load_image import LoadImage, LoadImageError
 from rapidocr.utils.log import logger
@@ -55,6 +57,10 @@ MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_PDF_BYTES = 20 * 1024 * 1024
 DEFAULT_MIN_SCORE = 0.5
 _infer_lock = threading.Lock()
+
+
+def requested_cuda_unavailable() -> bool:
+    return requested_provider() == "cuda" and active_provider() != "cuda"
 
 
 def model_dir() -> Path:
@@ -72,7 +78,11 @@ def preload():
 
     destination = model_dir()
     destination.mkdir(parents=True, exist_ok=True)
-    engine = RapidOCR(params={"Global.model_root_dir": str(destination)})
+    params = {"Global.model_root_dir": str(destination)}
+    params.update(engine_params())
+    if requested_cuda_unavailable():
+        logger.warning("RAPIDOCR_PROVIDER asks for CUDA. CPU will be used instead.")
+    engine = RapidOCR(params=params)
     engine._load_det_model()
     engine._load_cls_model()
     engine._load_rec_model()
@@ -104,12 +114,20 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     lang: str
+    provider: str
     models_ready: bool
 
 
 class VersionResponse(BaseModel):
     service: str
     version: str
+    provider: str
+
+
+class Artifact(BaseModel):
+    type: str
+    box: list[list[float]]
+    score: float
 
 
 class ErrorResponse(BaseModel):
@@ -129,6 +147,7 @@ class OcrResponse(BaseModel):
     elapse: Optional[float] = None
     min_score: float = DEFAULT_MIN_SCORE
     lines: list[OcrLine]
+    artifacts: list[Artifact] = []
 
 
 class KtpLine(BaseModel):
@@ -154,6 +173,7 @@ class ParseKtpResponse(BaseModel):
     lines: list[KtpLine]
     fields: KtpFields
     field_scores: dict[str, Optional[float]]
+    artifacts: list[Artifact] = []
 
 
 def _texts(result) -> list[str]:
@@ -205,17 +225,22 @@ def _elapse(result) -> Optional[float]:
     return float(value)
 
 
-def ocr_body(result, min_score: float = DEFAULT_MIN_SCORE) -> dict[str, Any]:
+def ocr_body(
+    result, min_score: float = DEFAULT_MIN_SCORE, artifacts: Optional[list] = None
+) -> dict[str, Any]:
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
         "elapse": _elapse(result),
         "min_score": min_score,
         "lines": _ocr_lines(result, min_score),
+        "artifacts": artifacts or [],
     }
 
 
-def document_body(results, min_score: float = DEFAULT_MIN_SCORE) -> dict[str, Any]:
+def document_body(
+    results, min_score: float = DEFAULT_MIN_SCORE, images: Optional[list] = None
+) -> dict[str, Any]:
     pages = []
     elapsed = 0.0
     saw_elapse = False
@@ -234,6 +259,7 @@ def document_body(results, min_score: float = DEFAULT_MIN_SCORE) -> dict[str, An
                 "markdown": page_markdown(lines),
                 "html_body": layout_html(lines),
                 "tables": detect_tables(lines),
+                "artifacts": _page_artifacts(images, index - 1, lines),
             }
         )
     return {
@@ -262,6 +288,7 @@ def public_json_document(body: dict[str, Any]) -> dict[str, Any]:
                 "text": page["text"],
                 "lines": page["lines"],
                 "tables": page.get("tables") or [],
+                "artifacts": page.get("artifacts") or [],
             }
             for page in body["pages"]
         ],
@@ -341,8 +368,14 @@ def _matching_score(value: str, lines) -> Optional[float]:
     return best_score
 
 
+def _page_artifacts(images, index: int, lines) -> list:
+    if not images or index >= len(images) or images[index] is None:
+        return []
+    return detect_artifacts(images[index], lines)
+
+
 def parse_document_body(
-    result, parser, field_names, min_score: float
+    result, parser, field_names, min_score: float, artifacts: Optional[list] = None
 ) -> dict[str, Any]:
     """Parse from recognition strings only, ignoring box order."""
     lines = _ktp_lines(result, min_score)
@@ -357,6 +390,7 @@ def parse_document_body(
         "lines": lines,
         "fields": fields,
         "field_scores": scores,
+        "artifacts": artifacts or [],
     }
 
 
@@ -412,12 +446,17 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             "service": SERVICE_NAME,
             "version": SERVICE_VERSION,
             "lang": "id",
+            "provider": active_provider(),
             "models_ready": ready,
         }
 
     @app.get("/version", response_model=VersionResponse)
     def version():
-        return {"service": SERVICE_NAME, "version": SERVICE_VERSION}
+        return {
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "provider": active_provider(),
+        }
 
     @app.post(
         "/ocr",
@@ -514,6 +553,29 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         return await _parse_image(
             app, file, parse_ktp, KTP_FIELDS, preprocess, min_score, crop
         )
+
+    @app.post("/detect/artifacts", tags=["artifacts"])
+    async def detect_artifact_regions(
+        file: UploadFile = File(...),
+        preprocess: Optional[str] = Query(None),
+    ):
+        payload = await _read_upload(file, MAX_IMAGE_BYTES)
+        if looks_like_pdf(payload, file.filename, file.content_type):
+            raise HTTPException(
+                status_code=400,
+                detail="Artifact detection accepts an image, not a PDF.",
+            )
+        try:
+            mode = parse_preprocess(preprocess, "light")
+        except DocumentError as exc:
+            raise _as_http(exc) from exc
+        image = _prepare_page(_decode_image(payload), mode, None, False)
+        result = _run(app, image)
+        return {
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "artifacts": detect_artifacts(image, _ocr_lines(result, DEFAULT_MIN_SCORE)),
+        }
 
     @app.post("/jobs", tags=["jobs"])
     async def create_job(
@@ -659,7 +721,10 @@ async def _parse_image(app, file, parser, field_names, preprocess, min_score, cr
         raise _as_http(exc) from exc
     score = _checked_min_score(min_score)
     image = _prepare_page(_decode_image(payload), mode, crop, True)
-    return parse_document_body(_run(app, image), parser, field_names, score)
+    result = _run(app, image)
+    body = parse_document_body(result, parser, field_names, score)
+    body["artifacts"] = detect_artifacts(image, body["lines"])
+    return body
 
 
 async def _recognize_upload(
@@ -711,12 +776,17 @@ async def _recognize_upload(
             app, payload, export_formats, mode, score, pages, max_pages, dpi, crop
         )
     if mode == "off" and not crop:
-        result = _run(app, payload)
+        image = _try_decode(payload)
+        result = _run(app, payload if image is None else image)
     else:
-        result = _run(app, _prepare_page(_decode_image(payload), mode, crop, True))
+        image = _prepare_page(_decode_image(payload), mode, crop, True)
+        result = _run(app, image)
+    artifacts = (
+        [] if image is None else detect_artifacts(image, _ocr_lines(result, score))
+    )
     if export_formats == ["json"]:
-        return OcrResponse(**ocr_body(result, score))
-    return render_document(document_body([result], score), export_formats)
+        return OcrResponse(**ocr_body(result, score, artifacts))
+    return render_document(document_body([result], score, [image]), export_formats)
 
 
 def _recognize_pdf(
@@ -739,7 +809,7 @@ def _recognize_pdf(
         for index, image in enumerate(images)
     ]
     results = _run_many(app, prepared)
-    return render_document(document_body(results, min_score), export_formats)
+    return render_document(document_body(results, min_score, prepared), export_formats)
 
 
 def _run_job(app, files, options):
@@ -765,7 +835,7 @@ def _run_job(app, files, options):
         prepared = [_prepare_page(image, mode, None, False) for image in images]
         results = _run_many(app, prepared)
         if task == "ocr":
-            body = document_body(results, score)
+            body = document_body(results, score, prepared)
             documents.append(
                 {
                     "name": name,
@@ -781,12 +851,25 @@ def _run_job(app, files, options):
             {
                 "name": name,
                 "pages": [
-                    parse_document_body(result, parser, field_names, score)
-                    for result in results
+                    _parsed_page(result, image, parser, field_names, score)
+                    for result, image in zip(results, prepared)
                 ],
             }
         )
     return {"task": task, "files": documents}
+
+
+def _parsed_page(result, image, parser, field_names, score: float) -> dict[str, Any]:
+    body = parse_document_body(result, parser, field_names, score)
+    body["artifacts"] = detect_artifacts(image, body["lines"])
+    return body
+
+
+def _try_decode(payload: bytes):
+    try:
+        return _image_loader(payload)
+    except Exception:
+        return None
 
 
 def _engine(app: FastAPI):

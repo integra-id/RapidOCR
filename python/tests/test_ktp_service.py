@@ -55,6 +55,7 @@ def test_health_reports_indonesian_models_ready():
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
         "lang": "id",
+        "provider": "cpu",
         "models_ready": True,
     }
 
@@ -65,8 +66,12 @@ def test_version_endpoint():
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {"service": "rapidocr-id", "version": SERVICE_VERSION}
-    assert body["version"] == "1.4.0"
+    assert body == {
+        "service": "rapidocr-id",
+        "version": SERVICE_VERSION,
+        "provider": "cpu",
+    }
+    assert body["version"] == "1.5.0"
     assert response.headers["content-type"].startswith("application/json")
 
 
