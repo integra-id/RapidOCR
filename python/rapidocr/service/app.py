@@ -31,6 +31,9 @@ from rapidocr.postprocess import (
 )
 from rapidocr.postprocess.fuzzy_labels import compact as compact_text
 from rapidocr.service.preprocess import apply_crop, parse_preprocess, preprocess_bgr
+from rapidocr.service.auth import install_guard
+from rapidocr.service.jobs import JobStore, expand_uploads, job_root
+from rapidocr.service.layout import detect_tables, layout_html, render_csv
 from rapidocr.service.pdf import (
     MEDIA_TYPES,
     DocumentError,
@@ -228,7 +231,9 @@ def document_body(results, min_score: float = DEFAULT_MIN_SCORE) -> dict[str, An
                 "elapse": page_elapse,
                 "lines": lines,
                 "text": page_plain_text(lines),
-                "markdown": page_markdown(result),
+                "markdown": page_markdown(lines),
+                "html_body": layout_html(lines),
+                "tables": detect_tables(lines),
             }
         )
     return {
@@ -256,6 +261,7 @@ def public_json_document(body: dict[str, Any]) -> dict[str, Any]:
                 "elapse": page["elapse"],
                 "text": page["text"],
                 "lines": page["lines"],
+                "tables": page.get("tables") or [],
             }
             for page in body["pages"]
         ],
@@ -269,6 +275,8 @@ def _rendered_output(body: dict[str, Any], export_format: str):
         return render_text(body["pages"])
     if export_format == "markdown":
         return render_markdown(body["pages"])
+    if export_format == "csv":
+        return render_csv(body["pages"])
     return render_html(body["pages"])
 
 
@@ -372,6 +380,9 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.engine = loader()
+        app.state.jobs = JobStore(
+            job_root(), runner=lambda files, options: _run_job(app, files, options)
+        )
         app.state.ready = True
         yield
         app.state.ready = False
@@ -382,6 +393,7 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         lifespan=lifespan,
         default_response_class=JSONResponse,
     )
+    install_guard(app)
 
     @app.exception_handler(HTTPException)
     async def http_error(_request, exc: HTTPException):
@@ -502,6 +514,77 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         return await _parse_image(
             app, file, parse_ktp, KTP_FIELDS, preprocess, min_score, crop
         )
+
+    @app.post("/jobs", tags=["jobs"])
+    async def create_job(
+        files: list[UploadFile] = File(...),
+        task: str = Form("ocr"),
+        formats: Optional[str] = Form(None),
+        webhook: Optional[str] = Form(None),
+        preprocess: Optional[str] = Form(None),
+        min_score: Optional[float] = Form(None),
+    ):
+        if task not in {"ocr", "ktp", "npwp", "invoice"}:
+            raise HTTPException(status_code=400, detail="Unknown task.")
+        uploads = []
+        for item in files:
+            payload = await item.read()
+            if payload:
+                uploads.append((item.filename or "upload", payload))
+        try:
+            saved = expand_uploads(uploads)
+        except DocumentError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        record = app.state.jobs.create(
+            saved,
+            {
+                "task": task,
+                "formats": formats or "json",
+                "webhook": webhook,
+                "preprocess": preprocess,
+                "min_score": min_score,
+            },
+        )
+        return {
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "id": record["id"],
+            "status": record["status"],
+            "task": record["task"],
+            "file_count": record["file_count"],
+        }
+
+    @app.get("/jobs/{job_id}", tags=["jobs"])
+    def job_status(job_id: str):
+        record = app.state.jobs.get(job_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+        return {
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "id": record["id"],
+            "status": record["status"],
+            "task": record.get("task"),
+            "file_count": record.get("file_count"),
+            "error": record.get("error"),
+            "webhook_error": record.get("webhook_error"),
+        }
+
+    @app.get("/jobs/{job_id}/result", tags=["jobs"])
+    def job_result(job_id: str):
+        record = app.state.jobs.get(job_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+        if record["status"] != "done":
+            raise HTTPException(status_code=409, detail="Job is not finished.")
+        result = app.state.jobs.result(job_id)
+        return {
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "id": job_id,
+            "status": "done",
+            "result": result,
+        }
 
     @app.post("/parse/npwp", tags=["parsers"])
     async def parse_npwp_document(
@@ -657,6 +740,53 @@ def _recognize_pdf(
     ]
     results = _run_many(app, prepared)
     return render_document(document_body(results, min_score), export_formats)
+
+
+def _run_job(app, files, options):
+    task = options.get("task") or "ocr"
+    score = _checked_min_score(options.get("min_score"))
+    default_mode = "off" if task == "ocr" else "full"
+    try:
+        mode = parse_preprocess(options.get("preprocess"), default_mode)
+        export_formats = collect_formats(options.get("formats"))
+    except DocumentError as exc:
+        raise RuntimeError(exc.detail) from exc
+    parsers = {
+        "ktp": (parse_ktp, KTP_FIELDS),
+        "npwp": (parse_npwp, NPWP_FIELDS),
+        "invoice": (parse_invoice, INVOICE_FIELDS),
+    }
+    documents = []
+    for name, payload in files:
+        if looks_like_pdf(payload, name, None):
+            images = rasterize_pdf(payload)
+        else:
+            images = [_decode_image(payload)]
+        prepared = [_prepare_page(image, mode, None, False) for image in images]
+        results = _run_many(app, prepared)
+        if task == "ocr":
+            body = document_body(results, score)
+            documents.append(
+                {
+                    "name": name,
+                    "outputs": {
+                        export_format: _rendered_output(body, export_format)
+                        for export_format in export_formats
+                    },
+                }
+            )
+            continue
+        parser, field_names = parsers[task]
+        documents.append(
+            {
+                "name": name,
+                "pages": [
+                    parse_document_body(result, parser, field_names, score)
+                    for result in results
+                ],
+            }
+        )
+    return {"task": task, "files": documents}
 
 
 def _engine(app: FastAPI):

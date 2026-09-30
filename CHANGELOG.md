@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.4.0] - 2026-09-30
+
+### Added
+
+- `POST /jobs` accepts several images, PDFs, or one zip. Poll `GET /jobs/{id}` and read `GET /jobs/{id}/result`. State is stored under `RAPIDOCR_JOB_DIR` (default `/data/jobs`) and removed after `RAPIDOCR_JOB_TTL_HOURS` (default 24). An optional `webhook` URL is notified when the job finishes.
+- Optional `X-API-Key` or `Authorization: Bearer` when `RAPIDOCR_API_KEY` is set. `/health` stays open. `RAPIDOCR_RATE_LIMIT` defaults to 60 requests per minute per key (or per client); `0` turns it off.
+- Markdown and HTML use line boxes for headings, lists, and simple columns. `csv` exports aligned tables. This is a box heuristic, not a table-recognition model. JSON pages include a `tables` array.
+
 ## [1.3.0] - 2026-09-30
 
 ### Added
@@ -52,6 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - HTTP API: `GET /health`, `GET /version`, `POST /ocr`, and the KTP parser at `POST /parse/ktp` (alias `POST /ktp`).
 - GitHub Actions workflow publishes `vX.Y.Z` to `ghcr.io/integra-id/rapidocr-id` as `X.Y.Z`, `X.Y`, `X`, and `latest`.
 
+[1.4.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.4.0
 [1.3.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.3.0
 [1.2.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.2.0
 [1.1.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.1.0

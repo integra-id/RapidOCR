@@ -12,7 +12,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-from rapidocr.utils.to_markdown import ToMarkdown
+from rapidocr.service.layout import detect_tables, layout_html, layout_markdown, render_csv
 
 MAX_PDF_PAGES = 20
 PDF_RENDER_SCALE = 2.0
@@ -33,6 +33,7 @@ _FORMAT_ALIASES = {
     "md": "markdown",
     "markdown": "markdown",
     "html": "html",
+    "csv": "csv",
 }
 
 MEDIA_TYPES = {
@@ -40,6 +41,7 @@ MEDIA_TYPES = {
     "txt": "text/plain; charset=utf-8",
     "markdown": "text/markdown; charset=utf-8",
     "html": "text/html; charset=utf-8",
+    "csv": "text/csv; charset=utf-8",
 }
 
 
@@ -201,16 +203,13 @@ def page_plain_text(lines: list[dict[str, Any]]) -> str:
     return "\n".join(line["text"] for line in lines if line.get("text"))
 
 
-def page_markdown(result) -> str:
-    texts = getattr(result, "txts", None) or ()
-    if not texts:
+def page_markdown(lines: list[dict[str, Any]]) -> str:
+    if not lines:
         return ""
-    boxes = getattr(result, "boxes", None)
-    if boxes is not None and len(boxes) == len(texts):
-        rendered = ToMarkdown.to(np.asarray(boxes), tuple(texts))
-        if rendered and not rendered.startswith("没有检测到"):
-            return rendered
-    return "\n".join(str(text) for text in texts if text)
+    rendered = layout_markdown(lines)
+    if rendered:
+        return rendered
+    return "\n".join(line["text"] for line in lines if line.get("text"))
 
 
 def render_text(pages: list[dict[str, Any]]) -> str:
@@ -232,12 +231,14 @@ def render_markdown(pages: list[dict[str, Any]]) -> str:
 def render_html(pages: list[dict[str, Any]]) -> str:
     sections = []
     for page in pages:
-        paragraphs = "".join(
-            f"<p>{html.escape(line['text'])}</p>"
-            for line in page.get("lines") or []
-            if line.get("text")
-        )
-        sections.append(f"<section><h1>Page {page['page']}</h1>{paragraphs}</section>")
+        body = page.get("html_body")
+        if not body:
+            body = "".join(
+                f"<p>{html.escape(line['text'])}</p>"
+                for line in page.get("lines") or []
+                if line.get("text")
+            )
+        sections.append(f"<section><h1>Page {page['page']}</h1>{body}</section>")
     body = "".join(sections)
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'

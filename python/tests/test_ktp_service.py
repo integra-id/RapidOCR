@@ -66,7 +66,7 @@ def test_version_endpoint():
     assert response.status_code == 200
     body = response.json()
     assert body == {"service": "rapidocr-id", "version": SERVICE_VERSION}
-    assert body["version"] == "1.3.0"
+    assert body["version"] == "1.4.0"
     assert response.headers["content-type"].startswith("application/json")
 
 
@@ -185,6 +185,7 @@ def test_production_image_bakes_models_and_publishes_port():
     assert "PP-OCRv6_rec_small.onnx" in dockerfile
     assert "rapidocr-id:" in compose
     assert "8000:8000" in compose
-    assert "volumes:" not in compose
+    assert "../python" not in compose
+    assert "/data/jobs" in compose
     assert "ghcr.io/integra-id/rapidocr-id" in workflow
     assert 'tags:\n      - "v*"' in workflow or '- "v*"' in workflow

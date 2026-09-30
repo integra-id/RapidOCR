@@ -2,7 +2,7 @@
 
 Layanan OCR bahasa Indonesia yang bisa dijalankan sendiri. OCR umum adalah API utama. Parser dokumen, saat ini KTP, adalah tambahan.
 
-Versi layanan saat ini adalah **1.3.0**. `1.0.0` adalah rilis pertama. Angka itu untuk image `rapidocr-id`, bukan versi pustaka upstream RapidOCR.
+Versi layanan saat ini adalah **1.4.0**. `1.0.0` adalah rilis pertama. Angka itu untuk image `rapidocr-id`, bukan versi pustaka upstream RapidOCR.
 
 ## Model di dalam image
 
@@ -22,17 +22,17 @@ Dari root repositori:
 docker compose -f docker/docker-compose.rapidocr-id.yml up --build
 ```
 
-Hanya membangun image lokal `rapidocr-id:1.3.0`:
+Hanya membangun image lokal `rapidocr-id:1.4.0`:
 
 ```bash
-docker build -f docker/Dockerfile.rapidocr-id --build-arg RAPIDOCR_ID_VERSION=1.3.0 -t rapidocr-id:1.3.0 .
+docker build -f docker/Dockerfile.rapidocr-id --build-arg RAPIDOCR_ID_VERSION=1.4.0 -t rapidocr-id:1.4.0 .
 ```
 
 Tarik image yang sudah diterbitkan:
 
 ```bash
-docker pull ghcr.io/integra-id/rapidocr-id:1.3.0
-docker run --rm -p 8000:8000 ghcr.io/integra-id/rapidocr-id:1.3.0
+docker pull ghcr.io/integra-id/rapidocr-id:1.4.0
+docker run --rm -p 8000:8000 ghcr.io/integra-id/rapidocr-id:1.4.0
 ```
 
 Tag mengambang yang ikut diterbitkan: `1.0`, `1`, dan `latest`.
@@ -53,13 +53,13 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 `GET /health`
 
 ```json
-{"status": "ok", "service": "rapidocr-id", "version": "1.3.0", "lang": "id", "models_ready": true}
+{"status": "ok", "service": "rapidocr-id", "version": "1.4.0", "lang": "id", "models_ready": true}
 ```
 
 `GET /version`
 
 ```json
-{"service": "rapidocr-id", "version": "1.3.0"}
+{"service": "rapidocr-id", "version": "1.4.0"}
 ```
 
 `POST /ocr`
@@ -67,7 +67,7 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "elapse": 0.42,
   "lines": [{"text": "NIK", "score": 0.99, "box": [[0, 1], [10, 1], [10, 2], [0, 2]]}]
 }
@@ -78,7 +78,7 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "elapse": 0.42,
   "lines": [{"text": "Namá", "score": 0.97}],
   "fields": {"nik": "3327011112890001", "nama": "RISWANDI", "tempat_tgl_lahir": null}
@@ -101,6 +101,21 @@ PDF:
 - `crop=x,y,w,h` dalam piksel. Pada PDF, crop hanya diterapkan ke halaman pertama yang dipilih.
 
 Batas keras tetap 20 halaman yang di-raster dan 20 MB.
+
+## Pekerjaan, kunci API, dan tabel
+
+`POST /jobs` menerima banyak berkas atau satu zip (`task` = `ocr`, `ktp`, `npwp`, atau `invoice`). Status ada di `GET /jobs/{id}`, hasil di `GET /jobs/{id}/result`. Direktori pekerjaan `/data/jobs` dihapus setelah 24 jam (`RAPIDOCR_JOB_TTL_HOURS`). `webhook` bersifat usaha terbaik: layanan hanya mengirim `id` dan `status`.
+
+Jika `RAPIDOCR_API_KEY` diisi, semua rute selain `/health` meminta header `X-API-Key` atau `Authorization: Bearer`. `RAPIDOCR_RATE_LIMIT` membatasi 60 permintaan per menit; `0` mematikan batas.
+
+`format=csv` menyusun tabel dari kotak yang sejajar. Markdown/HTML menaikkan baris yang lebih tinggi menjadi judul dan baris berbutir menjadi daftar. Sel yang digabung dan garis tabel tidak dikenali.
+
+```bash
+curl -s -F "files=@halaman1.jpg" -F "files=@halaman2.jpg" -F task=ocr http://127.0.0.1:8000/jobs
+curl -s http://127.0.0.1:8000/jobs/JOB_ID
+curl -s http://127.0.0.1:8000/jobs/JOB_ID/result
+curl -s -H "X-API-Key: $RAPIDOCR_API_KEY" -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?format=csv"
+```
 
 ```bash
 curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?pages=1,3&dpi=200&formats=json,md"
@@ -127,11 +142,11 @@ Satu nilai `format` tetap mengembalikan format itu saja. Beberapa format (`forma
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "page_count": 2,
   "elapse": 0.8,
   "outputs": {
-    "json": {"service": "rapidocr-id", "version": "1.3.0", "page_count": 2, "pages": []},
+    "json": {"service": "rapidocr-id", "version": "1.4.0", "page_count": 2, "pages": []},
     "markdown": "# Page 1\n\n...",
     "html": "<!DOCTYPE html>..."
   }
@@ -145,7 +160,7 @@ JSON PDF:
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "page_count": 2,
   "elapse": 0.8,
   "text": "baris halaman satu\n\nbaris halaman dua",

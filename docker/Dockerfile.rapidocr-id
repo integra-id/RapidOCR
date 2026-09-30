@@ -6,7 +6,7 @@
 
 FROM python:3.11-slim-bookworm
 
-ARG RAPIDOCR_ID_VERSION=1.3.0
+ARG RAPIDOCR_ID_VERSION=1.4.0
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -37,7 +37,8 @@ RUN pip install --no-cache-dir --upgrade pip \
     && rm -rf /src /root/.cache/pip
 
 RUN useradd --create-home --uid 10001 rapidocr \
-    && chown -R rapidocr:rapidocr "${RAPIDOCR_MODEL_DIR}"
+    && mkdir -p /data/jobs \
+    && chown -R rapidocr:rapidocr "${RAPIDOCR_MODEL_DIR}" /data/jobs
 USER rapidocr
 WORKDIR /home/rapidocr
 
