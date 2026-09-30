@@ -84,8 +84,82 @@ def collect_formats(*candidates: Any) -> list[str]:
     return unique
 
 
-def rasterize_pdf(payload: bytes) -> list[np.ndarray]:
-    """Return one BGR image per page, in PDF order."""
+def parse_page_selection(
+    count: int, pages: Optional[str], max_pages: Optional[int]
+) -> list[int]:
+    """Return zero-based page indexes to rasterize.
+
+    ``pages`` is 1-based, for example ``1-3`` or ``1,3,5``. Without it, every
+    page is used. A file with more than 20 pages is rejected unless ``pages``
+    or ``max_pages`` narrows the work to at most 20 pages.
+    """
+    if max_pages is not None and not 1 <= max_pages <= MAX_PDF_PAGES:
+        raise DocumentError(f"max_pages must be between 1 and {MAX_PDF_PAGES}.")
+    limit = MAX_PDF_PAGES if max_pages is None else max_pages
+
+    if pages:
+        indexes = _parse_page_spec(pages, count)
+    else:
+        indexes = list(range(count))
+
+    if pages is None and max_pages is None and count > MAX_PDF_PAGES:
+        raise DocumentError(
+            f"PDF has {count} pages; the limit is {MAX_PDF_PAGES}.",
+            status_code=413,
+        )
+    if len(indexes) > limit:
+        if pages is None:
+            return indexes[:limit]
+        raise DocumentError(
+            f"Selected {len(indexes)} pages; the limit is {limit}.",
+            status_code=413,
+        )
+    return indexes
+
+
+def render_scale(dpi: Optional[float]) -> float:
+    if dpi is None:
+        return PDF_RENDER_SCALE
+    if dpi < 72 or dpi > 300:
+        raise DocumentError("dpi must be between 72 and 300.")
+    return float(dpi) / 72.0
+
+
+def _parse_page_spec(spec: str, count: int) -> list[int]:
+    indexes: list[int] = []
+    for part in spec.split(","):
+        piece = part.strip()
+        if not piece:
+            continue
+        try:
+            if "-" in piece:
+                start_text, end_text = piece.split("-", 1)
+                start, end = int(start_text), int(end_text)
+                if start > end:
+                    raise ValueError
+                numbers = range(start, end + 1)
+            else:
+                numbers = [int(piece)]
+        except ValueError as exc:
+            raise DocumentError("pages must look like 1-3 or 1,3,5.") from exc
+        for number in numbers:
+            if number < 1 or number > count:
+                raise DocumentError(f"Page {number} is outside 1..{count}.")
+            zero = number - 1
+            if zero not in indexes:
+                indexes.append(zero)
+    if not indexes:
+        raise DocumentError("pages must look like 1-3 or 1,3,5.")
+    return indexes
+
+
+def rasterize_pdf(
+    payload: bytes,
+    dpi: Optional[float] = None,
+    pages: Optional[str] = None,
+    max_pages: Optional[int] = None,
+) -> list[np.ndarray]:
+    """Return one BGR image per selected page, in the requested order."""
     import pypdfium2 as pdfium
 
     try:
@@ -97,16 +171,13 @@ def rasterize_pdf(payload: bytes) -> list[np.ndarray]:
         count = len(document)
         if count < 1:
             raise DocumentError("The PDF has no pages.")
-        if count > MAX_PDF_PAGES:
-            raise DocumentError(
-                f"PDF has {count} pages; the limit is {MAX_PDF_PAGES}.",
-                status_code=413,
-            )
+        indexes = parse_page_selection(count, pages, max_pages)
+        scale = render_scale(dpi)
 
         images: list[np.ndarray] = []
-        for index in range(count):
+        for index in indexes:
             page = document[index]
-            bitmap = page.render(scale=PDF_RENDER_SCALE)
+            bitmap = page.render(scale=scale)
             try:
                 rgb = bitmap.to_numpy()
                 images.append(_to_bgr(rgb))

@@ -21,7 +21,16 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, create_model
 
-from rapidocr.postprocess import KTP_FIELDS, parse_ktp
+from rapidocr.postprocess import (
+    INVOICE_FIELDS,
+    KTP_FIELDS,
+    NPWP_FIELDS,
+    parse_invoice,
+    parse_ktp,
+    parse_npwp,
+)
+from rapidocr.postprocess.fuzzy_labels import compact as compact_text
+from rapidocr.service.preprocess import apply_crop, parse_preprocess, preprocess_bgr
 from rapidocr.service.pdf import (
     MEDIA_TYPES,
     DocumentError,
@@ -35,12 +44,13 @@ from rapidocr.service.pdf import (
     render_text,
 )
 from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
-from rapidocr.utils.load_image import LoadImageError
+from rapidocr.utils.load_image import LoadImage, LoadImageError
 from rapidocr.utils.log import logger
 
 DEFAULT_MODEL_DIR = "/opt/rapidocr/models"
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_PDF_BYTES = 20 * 1024 * 1024
+DEFAULT_MIN_SCORE = 0.5
 _infer_lock = threading.Lock()
 
 
@@ -107,20 +117,23 @@ class OcrLine(BaseModel):
     text: str
     score: Optional[float] = None
     box: Optional[list[list[float]]] = None
+    below_min_score: bool = False
 
 
 class OcrResponse(BaseModel):
     service: str
     version: str
     elapse: Optional[float] = None
+    min_score: float = DEFAULT_MIN_SCORE
     lines: list[OcrLine]
 
 
 class KtpLine(BaseModel):
-    """One recognized line. KTP parsing does not use the box."""
+    """One recognized line. Document parsers do not use the box."""
 
     text: str
     score: Optional[float] = None
+    below_min_score: bool = False
 
 
 KtpFields = create_model(
@@ -134,8 +147,10 @@ class ParseKtpResponse(BaseModel):
     service: str
     version: str
     elapse: Optional[float] = None
+    min_score: float = DEFAULT_MIN_SCORE
     lines: list[KtpLine]
     fields: KtpFields
+    field_scores: dict[str, Optional[float]]
 
 
 def _texts(result) -> list[str]:
@@ -157,16 +172,25 @@ def _box(result, index: int) -> Optional[list[list[float]]]:
     return [[float(point) for point in corner] for corner in boxes[index].tolist()]
 
 
-def _ocr_lines(result) -> list[dict[str, Any]]:
+def _mark_score(line: dict[str, Any], min_score: float) -> dict[str, Any]:
+    score = line.get("score")
+    line["below_min_score"] = score is not None and score < min_score
+    return line
+
+
+def _ocr_lines(result, min_score: float = DEFAULT_MIN_SCORE) -> list[dict[str, Any]]:
     return [
-        {"text": text, "score": _score(result, index), "box": _box(result, index)}
+        _mark_score(
+            {"text": text, "score": _score(result, index), "box": _box(result, index)},
+            min_score,
+        )
         for index, text in enumerate(_texts(result))
     ]
 
 
-def _ktp_lines(result) -> list[dict[str, Any]]:
+def _ktp_lines(result, min_score: float = DEFAULT_MIN_SCORE) -> list[dict[str, Any]]:
     return [
-        {"text": text, "score": _score(result, index)}
+        _mark_score({"text": text, "score": _score(result, index)}, min_score)
         for index, text in enumerate(_texts(result))
     ]
 
@@ -178,16 +202,17 @@ def _elapse(result) -> Optional[float]:
     return float(value)
 
 
-def ocr_body(result) -> dict[str, Any]:
+def ocr_body(result, min_score: float = DEFAULT_MIN_SCORE) -> dict[str, Any]:
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
         "elapse": _elapse(result),
-        "lines": _ocr_lines(result),
+        "min_score": min_score,
+        "lines": _ocr_lines(result, min_score),
     }
 
 
-def document_body(results) -> dict[str, Any]:
+def document_body(results, min_score: float = DEFAULT_MIN_SCORE) -> dict[str, Any]:
     pages = []
     elapsed = 0.0
     saw_elapse = False
@@ -196,7 +221,7 @@ def document_body(results) -> dict[str, Any]:
         if page_elapse is not None:
             saw_elapse = True
             elapsed += page_elapse
-        lines = _ocr_lines(result)
+        lines = _ocr_lines(result, min_score)
         pages.append(
             {
                 "page": index,
@@ -211,6 +236,7 @@ def document_body(results) -> dict[str, Any]:
         "version": SERVICE_VERSION,
         "page_count": len(pages),
         "elapse": elapsed if saw_elapse else None,
+        "min_score": min_score,
         "text": "\n\n".join(page["text"] for page in pages if page["text"]),
         "pages": pages,
     }
@@ -222,6 +248,7 @@ def public_json_document(body: dict[str, Any]) -> dict[str, Any]:
         "version": body["version"],
         "page_count": body["page_count"],
         "elapse": body["elapse"],
+        "min_score": body.get("min_score", DEFAULT_MIN_SCORE),
         "text": body["text"],
         "pages": [
             {
@@ -259,6 +286,7 @@ def render_document(body: dict[str, Any], export_formats: list[str]):
             "version": body["version"],
             "page_count": body["page_count"],
             "elapse": body["elapse"],
+            "min_score": body.get("min_score", DEFAULT_MIN_SCORE),
             "outputs": {
                 export_format: _rendered_output(body, export_format)
                 for export_format in export_formats
@@ -268,20 +296,64 @@ def render_document(body: dict[str, Any], export_formats: list[str]):
     )
 
 
-def parse_ktp_body(result) -> dict[str, Any]:
-    """Parse KTP from recognition strings only.
+def gate_fields(fields: dict[str, Optional[str]], lines, field_names, min_score: float):
+    """Drop a field when the line that supplied it is below ``min_score``."""
+    kept = {}
+    scores = {}
+    for key in field_names:
+        value = fields.get(key)
+        if not value:
+            kept[key] = None
+            scores[key] = None
+            continue
+        score = _matching_score(value, lines)
+        scores[key] = score
+        if score is not None and score < min_score:
+            kept[key] = None
+        else:
+            kept[key] = value
+    return kept, scores
 
-    Phone-photo boxes are not in reading order. Passing them into
-    ``parse_ktp`` reorders lines and breaks field mapping.
-    """
-    fields = parse_ktp(_texts(result))
+
+def _matching_score(value: str, lines) -> Optional[float]:
+    target = compact_text(value)
+    if not target:
+        return None
+    best_score = None
+    best_overlap = 0
+    for line in lines:
+        source = compact_text(line.get("text") or "")
+        if not source:
+            continue
+        if target in source or source in target:
+            overlap = min(len(target), len(source))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_score = line.get("score")
+    return best_score
+
+
+def parse_document_body(
+    result, parser, field_names, min_score: float
+) -> dict[str, Any]:
+    """Parse from recognition strings only, ignoring box order."""
+    lines = _ktp_lines(result, min_score)
+    texts = [line["text"] for line in lines if not line["below_min_score"]]
+    raw_fields = parser(texts)
+    fields, scores = gate_fields(raw_fields, lines, field_names, min_score)
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
         "elapse": _elapse(result),
-        "lines": _ktp_lines(result),
-        "fields": {key: fields.get(key) for key in KTP_FIELDS},
+        "min_score": min_score,
+        "lines": lines,
+        "fields": fields,
+        "field_scores": scores,
     }
+
+
+def parse_ktp_body(result, min_score: float = DEFAULT_MIN_SCORE) -> dict[str, Any]:
+    return parse_document_body(result, parse_ktp, KTP_FIELDS, min_score)
 
 
 async def _read_upload(file: UploadFile, limit: int) -> bytes:
@@ -347,6 +419,12 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         formats_form: Optional[list[str]] = Form(None, alias="formats"),
         format_form: Optional[list[str]] = Form(None, alias="format"),
         output_form: Optional[list[str]] = Form(None, alias="output"),
+        preprocess: Optional[str] = Query(None),
+        min_score: Optional[float] = Query(None),
+        pages: Optional[str] = Query(None),
+        max_pages: Optional[int] = Query(None),
+        dpi: Optional[float] = Query(None),
+        crop: Optional[str] = Query(None),
     ):
         return await _recognize_upload(
             app,
@@ -358,6 +436,12 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             format_form,
             output_form,
             pdf_only=False,
+            preprocess=preprocess,
+            min_score=min_score,
+            pages=pages,
+            max_pages=max_pages,
+            dpi=dpi,
+            crop=crop,
         )
 
     @app.post(
@@ -372,6 +456,12 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         formats_form: Optional[list[str]] = Form(None, alias="formats"),
         format_form: Optional[list[str]] = Form(None, alias="format"),
         output_form: Optional[list[str]] = Form(None, alias="output"),
+        preprocess: Optional[str] = Query(None),
+        min_score: Optional[float] = Query(None),
+        pages: Optional[str] = Query(None),
+        max_pages: Optional[int] = Query(None),
+        dpi: Optional[float] = Query(None),
+        crop: Optional[str] = Query(None),
     ):
         return await _recognize_upload(
             app,
@@ -383,6 +473,12 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             format_form,
             output_form,
             pdf_only=True,
+            preprocess=preprocess,
+            min_score=min_score,
+            pages=pages,
+            max_pages=max_pages,
+            dpi=dpi,
+            crop=crop,
         )
 
     @app.post(
@@ -397,16 +493,90 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         tags=["parsers"],
         include_in_schema=False,
     )
-    async def parse_ktp_document(file: UploadFile = File(...)):
-        payload = await _read_upload(file, MAX_IMAGE_BYTES)
-        if looks_like_pdf(payload, file.filename, file.content_type):
-            raise HTTPException(
-                status_code=400,
-                detail="KTP parsing accepts an image, not a PDF.",
-            )
-        return parse_ktp_body(_run(app, payload))
+    async def parse_ktp_document(
+        file: UploadFile = File(...),
+        preprocess: Optional[str] = Query(None),
+        min_score: Optional[float] = Query(None),
+        crop: Optional[str] = Query(None),
+    ):
+        return await _parse_image(
+            app, file, parse_ktp, KTP_FIELDS, preprocess, min_score, crop
+        )
+
+    @app.post("/parse/npwp", tags=["parsers"])
+    async def parse_npwp_document(
+        file: UploadFile = File(...),
+        preprocess: Optional[str] = Query(None),
+        min_score: Optional[float] = Query(None),
+        crop: Optional[str] = Query(None),
+    ):
+        return await _parse_image(
+            app, file, parse_npwp, NPWP_FIELDS, preprocess, min_score, crop
+        )
+
+    @app.post("/parse/invoice", tags=["parsers"])
+    async def parse_invoice_document(
+        file: UploadFile = File(...),
+        preprocess: Optional[str] = Query(None),
+        min_score: Optional[float] = Query(None),
+        crop: Optional[str] = Query(None),
+    ):
+        return await _parse_image(
+            app, file, parse_invoice, INVOICE_FIELDS, preprocess, min_score, crop
+        )
 
     return app
+
+
+def _checked_min_score(value: Optional[float]) -> float:
+    if value is None:
+        return DEFAULT_MIN_SCORE
+    if not 0 <= value <= 1:
+        raise HTTPException(
+            status_code=400, detail="min_score must be between 0 and 1."
+        )
+    return float(value)
+
+
+def _as_http(exc: DocumentError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+_image_loader = LoadImage()
+
+
+def _decode_image(payload: bytes):
+    try:
+        return _image_loader(payload)
+    except LoadImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _prepare_page(image, mode: str, crop: Optional[str], apply_region: bool):
+    try:
+        if mode != "off":
+            image = preprocess_bgr(image, mode)
+        if apply_region and crop:
+            image = apply_crop(image, crop)
+    except DocumentError as exc:
+        raise _as_http(exc) from exc
+    return image
+
+
+async def _parse_image(app, file, parser, field_names, preprocess, min_score, crop):
+    payload = await _read_upload(file, MAX_IMAGE_BYTES)
+    if looks_like_pdf(payload, file.filename, file.content_type):
+        raise HTTPException(
+            status_code=400,
+            detail="Document parsing accepts an image, not a PDF.",
+        )
+    try:
+        mode = parse_preprocess(preprocess, "full")
+    except DocumentError as exc:
+        raise _as_http(exc) from exc
+    score = _checked_min_score(min_score)
+    image = _prepare_page(_decode_image(payload), mode, crop, True)
+    return parse_document_body(_run(app, image), parser, field_names, score)
 
 
 async def _recognize_upload(
@@ -419,6 +589,12 @@ async def _recognize_upload(
     format_form,
     output_form,
     pdf_only: bool,
+    preprocess=None,
+    min_score=None,
+    pages=None,
+    max_pages=None,
+    dpi=None,
+    crop=None,
 ):
     try:
         export_formats = collect_formats(
@@ -442,21 +618,45 @@ async def _recognize_upload(
         )
     if pdf_only and not pdf:
         raise HTTPException(status_code=400, detail="Upload is not a PDF.")
-    if pdf:
-        return _recognize_pdf(app, payload, export_formats)
-    result = _run(app, payload)
-    if export_formats == ["json"]:
-        return OcrResponse(**ocr_body(result))
-    return render_document(document_body([result]), export_formats)
-
-
-def _recognize_pdf(app, payload: bytes, export_formats: list[str]):
     try:
-        images = rasterize_pdf(payload)
+        mode = parse_preprocess(preprocess, "off")
     except DocumentError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    results = _run_many(app, images)
-    return render_document(document_body(results), export_formats)
+        raise _as_http(exc) from exc
+    score = _checked_min_score(min_score)
+    if pdf:
+        return _recognize_pdf(
+            app, payload, export_formats, mode, score, pages, max_pages, dpi, crop
+        )
+    if mode == "off" and not crop:
+        result = _run(app, payload)
+    else:
+        result = _run(app, _prepare_page(_decode_image(payload), mode, crop, True))
+    if export_formats == ["json"]:
+        return OcrResponse(**ocr_body(result, score))
+    return render_document(document_body([result], score), export_formats)
+
+
+def _recognize_pdf(
+    app,
+    payload: bytes,
+    export_formats: list[str],
+    mode: str,
+    min_score: float,
+    pages,
+    max_pages,
+    dpi,
+    crop,
+):
+    try:
+        images = rasterize_pdf(payload, dpi=dpi, pages=pages, max_pages=max_pages)
+    except DocumentError as exc:
+        raise _as_http(exc) from exc
+    prepared = [
+        _prepare_page(image, mode, crop, apply_region=index == 0)
+        for index, image in enumerate(images)
+    ]
+    results = _run_many(app, prepared)
+    return render_document(document_body(results, min_score), export_formats)
 
 
 def _engine(app: FastAPI):

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.3.0] - 2026-09-30
+
+### Added
+
+- Optional `preprocess=true|false|light` before OCR. Parse endpoints default to full phone-photo cleanup (deskew when tilted, median denoise when noisy, CLAHE). `/ocr` and PDF pages default to off. A page that is already straight skips the rotation.
+- `min_score` (default `0.5`). Lines below it are marked `below_min_score` and are not used as structured field values. Parser JSON adds `field_scores`; uncertain fields are `null`.
+- PDF controls on `/ocr` and `/ocr/pdf`: `pages` (`1-3` or `1,3,5`), `max_pages`, and `dpi` (72–300, default raster scale is 144 DPI). `crop=x,y,w,h` applies to an image, or only the first selected PDF page. Hard caps stay 20 pages and 20 MB.
+- `POST /parse/npwp` (`npwp`, `nama`, `alamat`, `jenis_wp`) and `POST /parse/invoice` (nomor, tanggal, penjual, pembeli, NPWP, subtotal, PPN, total, currency). Both read text lines only, like KTP.
+
 ## [1.2.0] - 2026-09-30
 
 ### Added
@@ -43,6 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - HTTP API: `GET /health`, `GET /version`, `POST /ocr`, and the KTP parser at `POST /parse/ktp` (alias `POST /ktp`).
 - GitHub Actions workflow publishes `vX.Y.Z` to `ghcr.io/integra-id/rapidocr-id` as `X.Y.Z`, `X.Y`, `X`, and `latest`.
 
+[1.3.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.3.0
 [1.2.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.2.0
 [1.1.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.1.0
 [1.0.1]: https://github.com/integra-id/RapidOCR/releases/tag/v1.0.1

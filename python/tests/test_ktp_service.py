@@ -1,7 +1,9 @@
 # -*- encoding: utf-8 -*-
+import io
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from rapidocr.postprocess import KTP_FIELDS, parse_ktp
@@ -10,6 +12,12 @@ from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
 from tests.test_ktp_parser import BEKASI_KTP_LINES, GARUT_KTP_LINES, PEMALANG_KTP_LINES
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _png() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 32), "white").save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 class _Result:
@@ -58,7 +66,7 @@ def test_version_endpoint():
     assert response.status_code == 200
     body = response.json()
     assert body == {"service": "rapidocr-id", "version": SERVICE_VERSION}
-    assert body["version"] == "1.2.0"
+    assert body["version"] == "1.3.0"
     assert response.headers["content-type"].startswith("application/json")
 
 
@@ -84,11 +92,11 @@ def test_ktp_parser_is_secondary_endpoint():
     with _client() as client:
         response = client.post(
             "/parse/ktp",
-            files={"file": ("ktp.jpg", b"\xff\xd8\xff\xd9", "image/jpeg")},
+            files={"file": ("ktp.png", _png(), "image/png")},
         )
         alias = client.post(
             "/ktp",
-            files={"file": ("ktp.jpg", b"\xff\xd8\xff\xd9", "image/jpeg")},
+            files={"file": ("ktp.png", _png(), "image/png")},
         )
 
     assert response.status_code == 200
@@ -97,11 +105,12 @@ def test_ktp_parser_is_secondary_endpoint():
     assert body["service"] == "rapidocr-id"
     assert body["version"] == SERVICE_VERSION
     assert body["elapse"] == 0.01
+    assert body["min_score"] == 0.5
     assert body["lines"] == [
-        {"text": "NIK", "score": 0.99},
-        {"text": "3327011112890001", "score": 0.98},
-        {"text": "Namá", "score": 0.97},
-        {"text": ":RISWANDI", "score": 0.96},
+        {"text": "NIK", "score": 0.99, "below_min_score": False},
+        {"text": "3327011112890001", "score": 0.98, "below_min_score": False},
+        {"text": "Namá", "score": 0.97, "below_min_score": False},
+        {"text": ":RISWANDI", "score": 0.96, "below_min_score": False},
     ]
     assert "box" not in body["lines"][0]
     fields = body["fields"]
