@@ -851,6 +851,9 @@ fonts:
   latin:
     path: https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/resources/fonts/latin.ttf
     SHA256: 1562fe5cbdaacab4a5880d6404ba05245d12f3a4478fe16021e976bc725ce5d5
+  id:
+    path: https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/resources/fonts/latin.ttf
+    SHA256: 1562fe5cbdaacab4a5880d6404ba05245d12f3a4478fe16021e976bc725ce5d5
   ta:
     path: https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/resources/fonts/tamil.ttf
     SHA256: b771ac413157f6b1f1a52fb8ff1b56057f4b492fcce385ddd32ca12eee0c73b0

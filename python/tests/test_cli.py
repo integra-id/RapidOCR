@@ -127,6 +127,12 @@ def test_cli_lang_type():
     vis_path.unlink()
 
 
+def test_cli_default_lang_is_indonesian():
+    args = main_module.parse_args([])
+
+    assert args.lang_type == "id"
+
+
 def test_cli_lang_type_passed_to_engine(monkeypatch):
     captured_params = {}
 
@@ -154,11 +160,7 @@ def test_cli_vis_empty_result(monkeypatch, tmp_path):
 
     monkeypatch.setattr("rapidocr.main.RapidOCR", DummyRapidOCR)
 
-    main(
-        shlex.split(
-            f"--img_path {img_path} -vis --vis_save_dir {tmp_path}"
-        )
-    )
+    main(shlex.split(f"--img_path {img_path} -vis --vis_save_dir {tmp_path}"))
 
     assert not (tmp_path / f"{img_path.stem}_vis.png").exists()
 
@@ -173,10 +175,6 @@ def test_cli_word_vis_empty_result(monkeypatch, tmp_path):
 
     monkeypatch.setattr("rapidocr.main.RapidOCR", DummyRapidOCR)
 
-    main(
-        shlex.split(
-            f"--img_path {img_path} -vis --vis_save_dir {tmp_path} -word"
-        )
-    )
+    main(shlex.split(f"--img_path {img_path} -vis --vis_save_dir {tmp_path} -word"))
 
     assert not (tmp_path / f"{img_path.stem}_vis_single.png").exists()

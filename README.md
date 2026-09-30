@@ -33,7 +33,7 @@ Join our [Discord](https://discord.gg/33eyQJq498)
 
 RapidOCR is a completely open-source, free OCR tool that supports multi-platform, multi-language operation and rapid offline deployment. Its core advantages lie in extreme speed and extensive compatibility.
 
-**Supported Languages:** Default support for Chinese and English recognition. For other supported languages, please refer to the documentation: [Model List](https://rapidai.github.io/RapidOCRDocs/main/model_list/).
+**Supported Languages:** Bahasa Indonesia (`id`) is the default language. The default PP-OCRv6 pipeline still uses the shared multilingual detector and recognizer, so Chinese, English, and the other supported languages remain available by setting `lang_type`. See the [Model List](https://rapidai.github.io/RapidOCRDocs/main/model_list/).
 
 **Project Origin:** Considering that [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) still has room for optimization in engineering aspects, we innovatively converted the models in PaddleOCR into the highly compatible ONNX format to simplify and accelerate the inference deployment of OCR models on various terminal devices. Furthermore, we achieved seamless cross-platform porting based on multiple programming languages such as Python, C++, Java, and C#, enabling developers to get started easily and integrate efficiently.
 
@@ -61,15 +61,20 @@ pip install rapidocr onnxruntime
 ### 📋 Usage
 
 ```python
-from rapidocr import RapidOCR
+from rapidocr import LangDet, LangRec, RapidOCR
 
-engine = RapidOCR()
+engine = RapidOCR()  # Det/Rec default to Bahasa Indonesia (lang_type="id")
 
 img_url = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/master/resources/test_files/ch_en_num.jpg"
 result = engine(img_url)
 print(result)
 
 result.vis("vis_result.jpg")
+
+# Other languages stay selectable.
+engine_zh = RapidOCR(
+    params={"Det.lang_type": LangDet.CH, "Rec.lang_type": LangRec.CH}
+)
 ```
 
 ### 🐳 Docker

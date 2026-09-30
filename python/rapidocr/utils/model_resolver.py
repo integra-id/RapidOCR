@@ -27,6 +27,12 @@ COMMON_LANG_ALIASES = {
     "ja": "japan",
     "jp": "japan",
     "ko": "korean",
+    "ind": "id",
+    "indonesian": "id",
+    "bahasa_indonesia": "id",
+    "bahasa-indonesia": "id",
+    "id_id": "id",
+    "id-id": "id",
 }
 
 PP_OCRV6_LANGS = frozenset(
@@ -117,6 +123,39 @@ def normalize_lang(lang_type: Union[Enum, str]) -> str:
         lang = str(lang_type)
 
     return lang.strip().lower()
+
+
+def canonicalize_lang(lang_type: Union[Enum, str]) -> str:
+    lang = normalize_lang(lang_type)
+    return COMMON_LANG_ALIASES.get(lang, lang)
+
+
+def model_lang_prefix(
+    task_type: TaskType,
+    ocr_version: OCRVersion,
+    lang_type: Union[Enum, str],
+) -> str:
+    """Prefix used when a version has no dedicated multilingual route.
+
+    Bahasa Indonesia (``id``) has no separate PP-OCRv4/v5 checkpoint.
+    Recognition reuses the Latin model and dictionary. Detection reuses
+    the multilingual detector on v4 and the Chinese detector on v5, which
+    is the only v5 detection checkpoint.
+    """
+    lang = canonicalize_lang(lang_type)
+    if lang != "id":
+        return lang
+
+    if task_type == TaskType.REC:
+        return "latin"
+
+    if task_type == TaskType.DET and ocr_version == OCRVersion.PPOCRV5:
+        return "ch"
+
+    if task_type == TaskType.DET:
+        return "multi"
+
+    return lang
 
 
 def resolve_model_key(
