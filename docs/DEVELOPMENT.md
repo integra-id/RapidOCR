@@ -10,6 +10,8 @@ The default PP-OCRv6 pipeline keeps one multilingual detector, recognizer, and c
 
 PP-OCRv4 and PP-OCRv5 have no separate Indonesian checkpoint. `id` (and aliases such as `indonesian` and `bahasa_indonesia`) is wired to the Latin recognition model and dictionary. Detection uses the multilingual detector on v4 and the Chinese detector on v5.
 
+KTP fields are parsed after OCR by `parse_ktp` (`python/rapidocr/postprocess/ktp.py`). Usage is in [ktp.md](./ktp.md). The parser does not replace other-language OCR paths.
+
 ## Merge `main` or upstream into `development`
 
 Keep history mergeable. Do not rebase or otherwise rewrite commits that are already on `development`.

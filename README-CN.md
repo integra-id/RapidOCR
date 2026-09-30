@@ -71,6 +71,8 @@ print(result)
 result.vis("vis_result.jpg")
 ```
 
+印尼身份证（KTP）可用 `parse_ktp` 把 OCR 行解析成字段，说明见 [docs/ktp.md](docs/ktp.md)。
+
 ### 📚 文档
 
 完整文档请移步：[docs](https://rapidai.github.io/RapidOCRDocs)

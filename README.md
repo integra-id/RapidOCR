@@ -77,6 +77,15 @@ engine_zh = RapidOCR(
 )
 ```
 
+KTP (Indonesian ID card) lines can be turned into fields with `parse_ktp`. See [docs/ktp.md](docs/ktp.md).
+
+```python
+from rapidocr import parse_ktp
+
+fields = parse_ktp(result.txts, boxes=result.boxes)
+print(fields["nik"], fields["nama"])
+```
+
 ### 🐳 Docker
 
 Docker development environments are available for all supported inference engines:
