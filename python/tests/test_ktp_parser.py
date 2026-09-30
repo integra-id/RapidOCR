@@ -137,6 +137,125 @@ def test_parse_ktp_is_exported_from_package_root():
     assert exported_parse_ktp is parse_ktp
 
 
+# Phone-photo OCR (txts only). The broken labels are the strings RapidOCR
+# emitted; neighboring values are the raw lines for the fields under test.
+PEMALANG_KTP_LINES = [
+    "PROVINSIJAWA TENGAH",
+    "KABUPATENPEMALANG",
+    "NIK",
+    "3327011112890001",
+    "Namá",
+    ":RISWANDI",
+    "Tempai/TgiLahir",
+    "PEMALANG, 11-12-1989",
+    "Jens Kelamin",
+    ":LAKILAKI",
+    "Alamat",
+    ":DESAPETANJUNGAN",
+    "Ke/Desa",
+    ":PETANJUNGAN",
+    "Kacamatan",
+    ":ULUJAMI",
+    "Slatus Perkawinan: KAWIN",
+    "BerlakuHingga",
+    "SEUMUR HIDUP",
+    "PEMALANG",
+    "13-11-2018",
+]
+
+BEKASI_KTP_LINES = [
+    "PROVINSI JAWA BARAT",
+    "KABUPATEN BEKASI",
+    "NIK",
+    "3216010809780001",
+    "Nama",
+    ":ANDI WIBOWO",
+    "Tempot/TgtLahr",
+    "PEMALANG.08-09-1978",
+    "Jens Kelamin",
+    "LAKILAKI",
+    "GolDarah",
+    "O",
+    "KeiDesa",
+    "SUKAMAJU",
+    "Kacamatan",
+    "CIKARANGSELATAN",
+    "Slatus Perkawinan: KAWIN",
+    "BerlakuHingga",
+    "SEUMUR HIDUP",
+    "CIKARANG",
+    "04-05-2016",
+]
+
+
+def test_pemalang_phone_ocr_lines():
+    parsed = parse_ktp(PEMALANG_KTP_LINES)
+
+    assert parsed["nik"] == "3327011112890001"
+    assert parsed["nama"] == "RISWANDI"
+    assert parsed["tempat_tgl_lahir"] == "PEMALANG, 11-12-1989"
+    assert parsed["jenis_kelamin"] == "LAKI-LAKI"
+    assert parsed["alamat"] == "DESA PETANJUNGAN"
+    assert parsed["kel_desa"] == "PETANJUNGAN"
+    assert parsed["kecamatan"] == "ULUJAMI"
+    assert parsed["status_perkawinan"] == "KAWIN"
+    assert parsed["berlaku_hingga"] == "SEUMUR HIDUP"
+    assert parsed["provinsi"] == "JAWA TENGAH"
+    assert parsed["kabupaten_kota"] == "PEMALANG"
+    assert parsed["issued_place"] == "PEMALANG"
+    assert parsed["issued_date"] == "13-11-2018"
+    assert parsed["issued_date"] != "11-12-1989"
+
+
+def test_bekasi_phone_ocr_lines():
+    parsed = parse_ktp(BEKASI_KTP_LINES)
+
+    assert parsed["nik"] == "3216010809780001"
+    assert parsed["nama"] == "ANDI WIBOWO"
+    assert parsed["tempat_tgl_lahir"] == "PEMALANG, 08-09-1978"
+    assert parsed["jenis_kelamin"] == "LAKI-LAKI"
+    assert parsed["gol_darah"] == "O"
+    assert parsed["kel_desa"] == "SUKAMAJU"
+    assert parsed["kecamatan"] == "CIKARANG SELATAN"
+    assert parsed["status_perkawinan"] == "KAWIN"
+    assert parsed["berlaku_hingga"] == "SEUMUR HIDUP"
+    assert parsed["issued_place"] == "CIKARANG"
+    assert parsed["issued_date"] == "04-05-2016"
+    assert parsed["issued_date"] not in parsed["tempat_tgl_lahir"]
+
+
+def test_bottom_issue_date_wins_when_birth_line_is_unlabeled():
+    parsed = parse_ktp(
+        [
+            "NIK",
+            "3327011112890001",
+            "Nama",
+            ":RISWANDI",
+            "XXXX",
+            "PEMALANG, 11-12-1989",
+            "PEMALANG",
+            "13-11-2018",
+        ]
+    )
+
+    assert parsed["nama"] == "RISWANDI"
+    assert parsed["issued_date"] == "13-11-2018"
+    assert parsed["issued_place"] == "PEMALANG"
+    assert parsed["tempat_tgl_lahir"] is None
+
+
+def test_same_line_fuzzy_gender_and_blood():
+    parsed = parse_ktp(
+        [
+            "Jens Kelamin LAKILAKI",
+            "GolDarah O",
+        ]
+    )
+
+    assert parsed["jenis_kelamin"] == "LAKI-LAKI"
+    assert parsed["gol_darah"] == "O"
+
+
 def test_empty_input_returns_null_fields():
     parsed = parse_ktp([])
 

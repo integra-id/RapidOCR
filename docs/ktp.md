@@ -24,6 +24,10 @@ Yang dibersihkan dari hasil OCR:
 - Singkatan alamat dan koma sebelum tanggal diberi spasi: `KP.CIKANCUNG`, `GARUT,23-01-1988`.
 - Nama kapital yang menempel dipecah bila setiap bagian ada di leksikon nama. String yang tidak dikenal dibiarkan utuh.
 - Gelar di baris berikutnya, misalnya `S.Pd.I`, digabung ke `nama`.
+- Label dari foto HP yang salah satu-dua huruf tetap dikenali, misalnya `Namá`, `Tempai/TgiLahir`, `Tempot/TgtLahr`, `Jens Kelamin`, `Ke/Desa`, `KeiDesa`, `Kacamatan`, `BerlakuHingga`, `Slatus Perkawinan`, dan `GolDarah`. Nilai di baris berikutnya tetap diambil, termasuk bila diawali titik dua.
+- `LAKILAKI` menjadi `LAKI-LAKI`. Tanggal lahir yang memakai titik (`PEMALANG.08-09-1978`) diperlakukan seperti koma.
+- `DESAPETANJUNGAN` dan `CIKARANGSELATAN` diberi spasi bila awalan atau akhiran tempatnya dikenal (`DESA`, `SELATAN`, dan sejenisnya).
+- Tanggal terbit diambil dari tanggal paling bawah, bukan dari baris tempat/tanggal lahir.
 
 Contoh dari KTP Garut (PP-OCRv6 small, `lang_type=id`):
 

@@ -22,3 +22,21 @@ yulia yunita yusuf zainal
 NAME_LEXICON = frozenset(
     token.strip().upper() for token in _NAME_TOKENS.split() if token.strip()
 )
+
+# Administrative words that may be glued to a place name in phone OCR.
+# Longest affixes are listed first so they win over a shorter overlap.
+PLACE_PREFIXES = (
+    "KELURAHAN",
+    "KECAMATAN",
+    "KABUPATEN",
+    "DESA",
+)
+PLACE_SUFFIXES = (
+    "TENGGARA",
+    "SELATAN",
+    "UTARA",
+    "TIMUR",
+    "BARAT",
+    "TENGAH",
+    "PUSAT",
+)
