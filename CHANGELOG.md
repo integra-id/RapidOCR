@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.1.0] - 2026-09-30
+
+### Added
+
+- Multipage PDF OCR on `POST /ocr` and `POST /ocr/pdf`. Pages are rasterized with pypdfium2 (bundled pdfium; poppler is not required), at most 20 pages and 20 MB.
+- Export `format` or `output` as `json` (default), `txt`, `md`/`markdown`, or `html`, with the matching Content-Type. Markdown uses RapidOCR's box layout when boxes exist.
+- JSON documents include `service`, `version`, `page_count`, `elapse`, concatenated `text`, and `pages[{page, elapse, text, lines[{text, score, box}]}]`.
+
 ## [1.0.1] - 2026-09-30
 
 ### Changed
@@ -27,5 +35,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - HTTP API: `GET /health`, `GET /version`, `POST /ocr`, and the KTP parser at `POST /parse/ktp` (alias `POST /ktp`).
 - GitHub Actions workflow publishes `vX.Y.Z` to `ghcr.io/integra-id/rapidocr-id` as `X.Y.Z`, `X.Y`, `X`, and `latest`.
 
+[1.1.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.1.0
 [1.0.1]: https://github.com/integra-id/RapidOCR/releases/tag/v1.0.1
 [1.0.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.0.0

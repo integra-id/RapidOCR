@@ -17,17 +17,30 @@ from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, create_model
 
 from rapidocr.postprocess import KTP_FIELDS, parse_ktp
+from rapidocr.service.pdf import (
+    MEDIA_TYPES,
+    DocumentError,
+    looks_like_pdf,
+    normalize_format,
+    page_markdown,
+    page_plain_text,
+    rasterize_pdf,
+    render_html,
+    render_markdown,
+    render_text,
+)
 from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
 from rapidocr.utils.load_image import LoadImageError
 from rapidocr.utils.log import logger
 
 DEFAULT_MODEL_DIR = "/opt/rapidocr/models"
-MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+MAX_IMAGE_BYTES = 15 * 1024 * 1024
+MAX_PDF_BYTES = 20 * 1024 * 1024
 _infer_lock = threading.Lock()
 
 
@@ -174,6 +187,63 @@ def ocr_body(result) -> dict[str, Any]:
     }
 
 
+def document_body(results) -> dict[str, Any]:
+    pages = []
+    elapsed = 0.0
+    saw_elapse = False
+    for index, result in enumerate(results, start=1):
+        page_elapse = _elapse(result)
+        if page_elapse is not None:
+            saw_elapse = True
+            elapsed += page_elapse
+        lines = _ocr_lines(result)
+        pages.append(
+            {
+                "page": index,
+                "elapse": page_elapse,
+                "lines": lines,
+                "text": page_plain_text(lines),
+                "markdown": page_markdown(result),
+            }
+        )
+    return {
+        "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
+        "page_count": len(pages),
+        "elapse": elapsed if saw_elapse else None,
+        "text": "\n\n".join(page["text"] for page in pages if page["text"]),
+        "pages": pages,
+    }
+
+
+def render_document(body: dict[str, Any], export_format: str):
+    if export_format == "json":
+        public = {
+            "service": body["service"],
+            "version": body["version"],
+            "page_count": body["page_count"],
+            "elapse": body["elapse"],
+            "text": body["text"],
+            "pages": [
+                {
+                    "page": page["page"],
+                    "elapse": page["elapse"],
+                    "text": page["text"],
+                    "lines": page["lines"],
+                }
+                for page in body["pages"]
+            ],
+        }
+        return JSONResponse(content=public, media_type=MEDIA_TYPES["json"])
+    if export_format == "txt":
+        content = render_text(body["pages"])
+    elif export_format == "markdown":
+        content = render_markdown(body["pages"])
+    else:
+        content = render_html(body["pages"])
+    return Response(content=content, media_type=MEDIA_TYPES[export_format])
+
+
 def parse_ktp_body(result) -> dict[str, Any]:
     """Parse KTP from recognition strings only.
 
@@ -190,12 +260,15 @@ def parse_ktp_body(result) -> dict[str, Any]:
     }
 
 
-async def _read_upload(file: UploadFile) -> bytes:
+async def _read_upload(file: UploadFile, limit: int) -> bytes:
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Empty image upload.")
-    if len(payload) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Image is larger than 15 MB.")
+    if len(payload) > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload is larger than {limit // (1024 * 1024)} MB.",
+        )
     return payload
 
 
@@ -240,11 +313,33 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
 
     @app.post(
         "/ocr",
-        response_model=OcrResponse,
         responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
     )
-    async def ocr(file: UploadFile = File(...)):
-        return ocr_body(_run(app, await _read_upload(file)))
+    async def ocr(
+        file: UploadFile = File(...),
+        format: Optional[str] = Query(None),
+        output: Optional[str] = Query(None),
+        format_form: Optional[str] = Form(None, alias="format"),
+        output_form: Optional[str] = Form(None, alias="output"),
+    ):
+        return await _recognize_upload(
+            app, file, format, output, format_form, output_form, pdf_only=False
+        )
+
+    @app.post(
+        "/ocr/pdf",
+        responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+    )
+    async def ocr_pdf(
+        file: UploadFile = File(...),
+        format: Optional[str] = Query(None),
+        output: Optional[str] = Query(None),
+        format_form: Optional[str] = Form(None, alias="format"),
+        output_form: Optional[str] = Form(None, alias="output"),
+    ):
+        return await _recognize_upload(
+            app, file, format, output, format_form, output_form, pdf_only=True
+        )
 
     @app.post(
         "/parse/ktp",
@@ -259,18 +354,76 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         include_in_schema=False,
     )
     async def parse_ktp_document(file: UploadFile = File(...)):
-        return parse_ktp_body(_run(app, await _read_upload(file)))
+        payload = await _read_upload(file, MAX_IMAGE_BYTES)
+        if looks_like_pdf(payload, file.filename, file.content_type):
+            raise HTTPException(
+                status_code=400,
+                detail="KTP parsing accepts an image, not a PDF.",
+            )
+        return parse_ktp_body(_run(app, payload))
 
     return app
 
 
-def _run(app: FastAPI, payload: bytes):
+async def _recognize_upload(
+    app, file, format, output, format_form, output_form, pdf_only: bool
+):
+    try:
+        export_format = normalize_format(format, output, format_form, output_form)
+    except DocumentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    head = await file.read(5)
+    rest = await file.read()
+    payload = head + rest
+    if not payload:
+        raise HTTPException(status_code=400, detail="Empty image upload.")
+
+    pdf = looks_like_pdf(payload, file.filename, file.content_type)
+    limit = MAX_PDF_BYTES if pdf else MAX_IMAGE_BYTES
+    if len(payload) > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload is larger than {limit // (1024 * 1024)} MB.",
+        )
+    if pdf_only and not pdf:
+        raise HTTPException(status_code=400, detail="Upload is not a PDF.")
+    if pdf:
+        return _recognize_pdf(app, payload, export_format)
+    if export_format == "json":
+        return OcrResponse(**ocr_body(_run(app, payload)))
+    return render_document(document_body([_run(app, payload)]), export_format)
+
+
+def _recognize_pdf(app, payload: bytes, export_format: str):
+    try:
+        images = rasterize_pdf(payload)
+    except DocumentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    results = _run_many(app, images)
+    return render_document(document_body(results), export_format)
+
+
+def _engine(app: FastAPI):
     engine = getattr(app.state, "engine", None)
     if engine is None:
         raise HTTPException(status_code=503, detail="OCR engine is not ready.")
+    return engine
+
+
+def _run(app: FastAPI, payload):
     try:
         with _infer_lock:
-            return engine(payload)
+            return _engine(app)(payload)
+    except LoadImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _run_many(app: FastAPI, images):
+    try:
+        with _infer_lock:
+            engine = _engine(app)
+            return [engine(image) for image in images]
     except LoadImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

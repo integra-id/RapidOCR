@@ -6,7 +6,7 @@
 
 FROM python:3.11-slim-bookworm
 
-ARG RAPIDOCR_ID_VERSION=1.0.1
+ARG RAPIDOCR_ID_VERSION=1.1.0
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -15,6 +15,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     RAPIDOCR_ID_VERSION=${RAPIDOCR_ID_VERSION} \
     SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 
+# PDF rasterization uses pypdfium2 from requirements-service.txt. That wheel
+# bundles pdfium, so poppler-utils is not installed.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libglib2.0-0 \
         libgomp1 \

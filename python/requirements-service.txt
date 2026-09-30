@@ -3,3 +3,4 @@ onnxruntime>=1.17
 fastapi>=0.110
 uvicorn>=0.27
 python-multipart>=0.0.9
+pypdfium2>=4.30
