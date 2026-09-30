@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.0.1] - 2026-09-30
+
+### Changed
+
+- HTTP bodies are stable JSON (`Content-Type: application/json`). `POST /ocr` returns `service`, `version`, `elapse`, and `lines` of `{text, score, box}`.
+- `POST /parse/ktp` and `POST /ktp` return `service`, `version`, `elapse`, `lines` of `{text, score}`, and `fields` with nulls for missing KTP values.
+- KTP parsing uses recognition strings only. Box order from phone photos is not applied, so Garut, Pemalang, and Bekasi lines stay in OCR text order.
+
 ## [1.0.0] - 2026-09-30
 
 ### Added
@@ -19,4 +27,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - HTTP API: `GET /health`, `GET /version`, `POST /ocr`, and the KTP parser at `POST /parse/ktp` (alias `POST /ktp`).
 - GitHub Actions workflow publishes `vX.Y.Z` to `ghcr.io/integra-id/rapidocr-id` as `X.Y.Z`, `X.Y`, `X`, and `latest`.
 
+[1.0.1]: https://github.com/integra-id/RapidOCR/releases/tag/v1.0.1
 [1.0.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.0.0

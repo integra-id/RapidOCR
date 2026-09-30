@@ -18,6 +18,8 @@ from typing import Any, Callable, Optional
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, create_model
 
 from rapidocr.postprocess import KTP_FIELDS, parse_ktp
 from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
@@ -71,18 +73,89 @@ def _touch_pipeline(engine) -> None:
         logger.info("Warmup image produced no text; model sessions are loaded.")
 
 
-def _lines_from_result(result) -> list[dict[str, Any]]:
-    texts = getattr(result, "txts", None) or ()
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    version: str
+    lang: str
+    models_ready: bool
+
+
+class VersionResponse(BaseModel):
+    service: str
+    version: str
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+class OcrLine(BaseModel):
+    text: str
+    score: Optional[float] = None
+    box: Optional[list[list[float]]] = None
+
+
+class OcrResponse(BaseModel):
+    service: str
+    version: str
+    elapse: Optional[float] = None
+    lines: list[OcrLine]
+
+
+class KtpLine(BaseModel):
+    """One recognized line. KTP parsing does not use the box."""
+
+    text: str
+    score: Optional[float] = None
+
+
+KtpFields = create_model(
+    "KtpFields",
+    __config__=ConfigDict(extra="ignore"),
+    **{key: (Optional[str], None) for key in KTP_FIELDS},
+)
+
+
+class ParseKtpResponse(BaseModel):
+    service: str
+    version: str
+    elapse: Optional[float] = None
+    lines: list[KtpLine]
+    fields: KtpFields
+
+
+def _texts(result) -> list[str]:
+    raw = getattr(result, "txts", None) or ()
+    return ["" if text is None else str(text) for text in raw]
+
+
+def _score(result, index: int) -> Optional[float]:
     scores = getattr(result, "scores", None) or ()
+    if index >= len(scores) or scores[index] is None:
+        return None
+    return float(scores[index])
+
+
+def _box(result, index: int) -> Optional[list[list[float]]]:
     boxes = getattr(result, "boxes", None)
-    lines = []
-    for index, text in enumerate(texts):
-        box = None
-        if boxes is not None and index < len(boxes):
-            box = boxes[index].tolist()
-        score = float(scores[index]) if index < len(scores) else None
-        lines.append({"text": text, "score": score, "box": box})
-    return lines
+    if boxes is None or index >= len(boxes) or boxes[index] is None:
+        return None
+    return [[float(point) for point in corner] for corner in boxes[index].tolist()]
+
+
+def _ocr_lines(result) -> list[dict[str, Any]]:
+    return [
+        {"text": text, "score": _score(result, index), "box": _box(result, index)}
+        for index, text in enumerate(_texts(result))
+    ]
+
+
+def _ktp_lines(result) -> list[dict[str, Any]]:
+    return [
+        {"text": text, "score": _score(result, index)}
+        for index, text in enumerate(_texts(result))
+    ]
 
 
 def _elapse(result) -> Optional[float]:
@@ -90,6 +163,31 @@ def _elapse(result) -> Optional[float]:
     if value is None:
         return None
     return float(value)
+
+
+def ocr_body(result) -> dict[str, Any]:
+    return {
+        "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
+        "elapse": _elapse(result),
+        "lines": _ocr_lines(result),
+    }
+
+
+def parse_ktp_body(result) -> dict[str, Any]:
+    """Parse KTP from recognition strings only.
+
+    Phone-photo boxes are not in reading order. Passing them into
+    ``parse_ktp`` reorders lines and breaks field mapping.
+    """
+    fields = parse_ktp(_texts(result))
+    return {
+        "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
+        "elapse": _elapse(result),
+        "lines": _ktp_lines(result),
+        "fields": {key: fields.get(key) for key in KTP_FIELDS},
+    }
 
 
 async def _read_upload(file: UploadFile) -> bytes:
@@ -109,9 +207,23 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         yield
         app.state.ready = False
 
-    app = FastAPI(title=SERVICE_NAME, version=SERVICE_VERSION, lifespan=lifespan)
+    app = FastAPI(
+        title=SERVICE_NAME,
+        version=SERVICE_VERSION,
+        lifespan=lifespan,
+        default_response_class=JSONResponse,
+    )
 
-    @app.get("/health")
+    @app.exception_handler(HTTPException)
+    async def http_error(_request, exc: HTTPException):
+        detail = exc.detail if isinstance(exc.detail, str) else "Request failed."
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": detail},
+            media_type="application/json",
+        )
+
+    @app.get("/health", response_model=HealthResponse)
     def health():
         ready = bool(getattr(app.state, "ready", False))
         return {
@@ -122,26 +234,32 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             "models_ready": ready,
         }
 
-    @app.get("/version")
+    @app.get("/version", response_model=VersionResponse)
     def version():
         return {"service": SERVICE_NAME, "version": SERVICE_VERSION}
 
-    @app.post("/ocr")
+    @app.post(
+        "/ocr",
+        response_model=OcrResponse,
+        responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+    )
     async def ocr(file: UploadFile = File(...)):
-        result = _run(app, await _read_upload(file))
-        return {"lines": _lines_from_result(result), "elapse": _elapse(result)}
+        return ocr_body(_run(app, await _read_upload(file)))
 
-    @app.post("/parse/ktp", tags=["parsers"])
-    @app.post("/ktp", tags=["parsers"], include_in_schema=False)
+    @app.post(
+        "/parse/ktp",
+        response_model=ParseKtpResponse,
+        tags=["parsers"],
+        responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+    )
+    @app.post(
+        "/ktp",
+        response_model=ParseKtpResponse,
+        tags=["parsers"],
+        include_in_schema=False,
+    )
     async def parse_ktp_document(file: UploadFile = File(...)):
-        payload = await _read_upload(file)
-        result = _run(app, payload)
-        fields = parse_ktp(result)
-        return {
-            "lines": _lines_from_result(result),
-            "fields": {key: fields.get(key) for key in KTP_FIELDS},
-            "elapse": _elapse(result),
-        }
+        return parse_ktp_body(_run(app, await _read_upload(file)))
 
     return app
 
