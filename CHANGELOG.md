@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.2.0] - 2026-09-30
+
+### Added
+
+- `POST /ocr` and `POST /ocr/pdf` accept several export formats in one OCR pass. Use comma-separated `formats=json,md,html` or repeat `format=` / `output=`.
+- A multi-format response is JSON: `service`, `version`, `page_count`, `elapse`, and `outputs` with keys `json`, `markdown`, `html`, and `txt` for the requested formats.
+- A single `format=` value still returns that format alone, with its previous Content-Type.
+
 ## [1.1.0] - 2026-09-30
 
 ### Added
@@ -35,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - HTTP API: `GET /health`, `GET /version`, `POST /ocr`, and the KTP parser at `POST /parse/ktp` (alias `POST /ktp`).
 - GitHub Actions workflow publishes `vX.Y.Z` to `ghcr.io/integra-id/rapidocr-id` as `X.Y.Z`, `X.Y`, `X`, and `latest`.
 
+[1.2.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.2.0
 [1.1.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.1.0
 [1.0.1]: https://github.com/integra-id/RapidOCR/releases/tag/v1.0.1
 [1.0.0]: https://github.com/integra-id/RapidOCR/releases/tag/v1.0.0

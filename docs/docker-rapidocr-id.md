@@ -2,7 +2,7 @@
 
 Layanan OCR bahasa Indonesia yang bisa dijalankan sendiri. OCR umum adalah API utama. Parser dokumen, saat ini KTP, adalah tambahan.
 
-Versi layanan saat ini adalah **1.1.0**. `1.0.0` adalah rilis pertama. Angka itu untuk image `rapidocr-id`, bukan versi pustaka upstream RapidOCR.
+Versi layanan saat ini adalah **1.2.0**. `1.0.0` adalah rilis pertama. Angka itu untuk image `rapidocr-id`, bukan versi pustaka upstream RapidOCR.
 
 ## Model di dalam image
 
@@ -22,17 +22,17 @@ Dari root repositori:
 docker compose -f docker/docker-compose.rapidocr-id.yml up --build
 ```
 
-Hanya membangun image lokal `rapidocr-id:1.1.0`:
+Hanya membangun image lokal `rapidocr-id:1.2.0`:
 
 ```bash
-docker build -f docker/Dockerfile.rapidocr-id --build-arg RAPIDOCR_ID_VERSION=1.1.0 -t rapidocr-id:1.1.0 .
+docker build -f docker/Dockerfile.rapidocr-id --build-arg RAPIDOCR_ID_VERSION=1.2.0 -t rapidocr-id:1.2.0 .
 ```
 
 Tarik image yang sudah diterbitkan:
 
 ```bash
-docker pull ghcr.io/integra-id/rapidocr-id:1.1.0
-docker run --rm -p 8000:8000 ghcr.io/integra-id/rapidocr-id:1.1.0
+docker pull ghcr.io/integra-id/rapidocr-id:1.2.0
+docker run --rm -p 8000:8000 ghcr.io/integra-id/rapidocr-id:1.2.0
 ```
 
 Tag mengambang yang ikut diterbitkan: `1.0`, `1`, dan `latest`.
@@ -53,13 +53,13 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 `GET /health`
 
 ```json
-{"status": "ok", "service": "rapidocr-id", "version": "1.1.0", "lang": "id", "models_ready": true}
+{"status": "ok", "service": "rapidocr-id", "version": "1.2.0", "lang": "id", "models_ready": true}
 ```
 
 `GET /version`
 
 ```json
-{"service": "rapidocr-id", "version": "1.1.0"}
+{"service": "rapidocr-id", "version": "1.2.0"}
 ```
 
 `POST /ocr`
@@ -67,7 +67,7 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "elapse": 0.42,
   "lines": [{"text": "NIK", "score": 0.99, "box": [[0, 1], [10, 1], [10, 2], [0, 2]]}]
 }
@@ -78,7 +78,7 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "elapse": 0.42,
   "lines": [{"text": "Namá", "score": 0.97}],
   "fields": {"nik": "3327011112890001", "nama": "RISWANDI", "tempat_tgl_lahir": null}
@@ -98,6 +98,24 @@ curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?format=json"
 curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?format=txt"
 curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr?format=md"
 curl -s -F file=@dokumen.pdf -F output=html http://127.0.0.1:8000/ocr/pdf
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?formats=json,md,html"
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr?format=txt&format=json"
+```
+
+Satu nilai `format` tetap mengembalikan format itu saja. Beberapa format (`formats=json,md,html` atau `format` / `output` berulang) menjalankan OCR sekali, lalu membungkus hasilnya:
+
+```json
+{
+  "service": "rapidocr-id",
+  "version": "1.2.0",
+  "page_count": 2,
+  "elapse": 0.8,
+  "outputs": {
+    "json": {"service": "rapidocr-id", "version": "1.2.0", "page_count": 2, "pages": []},
+    "markdown": "# Page 1\n\n...",
+    "html": "<!DOCTYPE html>..."
+  }
+}
 ```
 
 Content-Type: `application/json`, `text/plain`, `text/markdown`, atau `text/html`.
@@ -107,7 +125,7 @@ JSON PDF:
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "page_count": 2,
   "elapse": 0.8,
   "text": "baris halaman satu\n\nbaris halaman dua",

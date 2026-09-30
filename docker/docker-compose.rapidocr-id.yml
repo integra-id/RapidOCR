@@ -6,11 +6,11 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.rapidocr-id
       args:
-        RAPIDOCR_ID_VERSION: "1.1.0"
-    image: rapidocr-id:1.1.0
+        RAPIDOCR_ID_VERSION: "1.2.0"
+    image: rapidocr-id:1.2.0
     ports:
       - "8000:8000"
     environment:
       RAPIDOCR_MODEL_DIR: /opt/rapidocr/models
-      RAPIDOCR_ID_VERSION: "1.1.0"
+      RAPIDOCR_ID_VERSION: "1.2.0"
     restart: unless-stopped

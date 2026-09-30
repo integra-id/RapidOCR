@@ -25,8 +25,8 @@ from rapidocr.postprocess import KTP_FIELDS, parse_ktp
 from rapidocr.service.pdf import (
     MEDIA_TYPES,
     DocumentError,
+    collect_formats,
     looks_like_pdf,
-    normalize_format,
     page_markdown,
     page_plain_text,
     rasterize_pdf,
@@ -216,32 +216,56 @@ def document_body(results) -> dict[str, Any]:
     }
 
 
-def render_document(body: dict[str, Any], export_format: str):
+def public_json_document(body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "service": body["service"],
+        "version": body["version"],
+        "page_count": body["page_count"],
+        "elapse": body["elapse"],
+        "text": body["text"],
+        "pages": [
+            {
+                "page": page["page"],
+                "elapse": page["elapse"],
+                "text": page["text"],
+                "lines": page["lines"],
+            }
+            for page in body["pages"]
+        ],
+    }
+
+
+def _rendered_output(body: dict[str, Any], export_format: str):
     if export_format == "json":
-        public = {
+        return public_json_document(body)
+    if export_format == "txt":
+        return render_text(body["pages"])
+    if export_format == "markdown":
+        return render_markdown(body["pages"])
+    return render_html(body["pages"])
+
+
+def render_document(body: dict[str, Any], export_formats: list[str]):
+    if len(export_formats) == 1:
+        export_format = export_formats[0]
+        rendered = _rendered_output(body, export_format)
+        if export_format == "json":
+            return JSONResponse(content=rendered, media_type=MEDIA_TYPES["json"])
+        return Response(content=rendered, media_type=MEDIA_TYPES[export_format])
+
+    return JSONResponse(
+        content={
             "service": body["service"],
             "version": body["version"],
             "page_count": body["page_count"],
             "elapse": body["elapse"],
-            "text": body["text"],
-            "pages": [
-                {
-                    "page": page["page"],
-                    "elapse": page["elapse"],
-                    "text": page["text"],
-                    "lines": page["lines"],
-                }
-                for page in body["pages"]
-            ],
-        }
-        return JSONResponse(content=public, media_type=MEDIA_TYPES["json"])
-    if export_format == "txt":
-        content = render_text(body["pages"])
-    elif export_format == "markdown":
-        content = render_markdown(body["pages"])
-    else:
-        content = render_html(body["pages"])
-    return Response(content=content, media_type=MEDIA_TYPES[export_format])
+            "outputs": {
+                export_format: _rendered_output(body, export_format)
+                for export_format in export_formats
+            },
+        },
+        media_type="application/json",
+    )
 
 
 def parse_ktp_body(result) -> dict[str, Any]:
@@ -317,13 +341,23 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
     )
     async def ocr(
         file: UploadFile = File(...),
-        format: Optional[str] = Query(None),
-        output: Optional[str] = Query(None),
-        format_form: Optional[str] = Form(None, alias="format"),
-        output_form: Optional[str] = Form(None, alias="output"),
+        formats: Optional[list[str]] = Query(None),
+        format: Optional[list[str]] = Query(None),
+        output: Optional[list[str]] = Query(None),
+        formats_form: Optional[list[str]] = Form(None, alias="formats"),
+        format_form: Optional[list[str]] = Form(None, alias="format"),
+        output_form: Optional[list[str]] = Form(None, alias="output"),
     ):
         return await _recognize_upload(
-            app, file, format, output, format_form, output_form, pdf_only=False
+            app,
+            file,
+            formats,
+            format,
+            output,
+            formats_form,
+            format_form,
+            output_form,
+            pdf_only=False,
         )
 
     @app.post(
@@ -332,13 +366,23 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
     )
     async def ocr_pdf(
         file: UploadFile = File(...),
-        format: Optional[str] = Query(None),
-        output: Optional[str] = Query(None),
-        format_form: Optional[str] = Form(None, alias="format"),
-        output_form: Optional[str] = Form(None, alias="output"),
+        formats: Optional[list[str]] = Query(None),
+        format: Optional[list[str]] = Query(None),
+        output: Optional[list[str]] = Query(None),
+        formats_form: Optional[list[str]] = Form(None, alias="formats"),
+        format_form: Optional[list[str]] = Form(None, alias="format"),
+        output_form: Optional[list[str]] = Form(None, alias="output"),
     ):
         return await _recognize_upload(
-            app, file, format, output, format_form, output_form, pdf_only=True
+            app,
+            file,
+            formats,
+            format,
+            output,
+            formats_form,
+            format_form,
+            output_form,
+            pdf_only=True,
         )
 
     @app.post(
@@ -366,10 +410,20 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
 
 
 async def _recognize_upload(
-    app, file, format, output, format_form, output_form, pdf_only: bool
+    app,
+    file,
+    formats,
+    format,
+    output,
+    formats_form,
+    format_form,
+    output_form,
+    pdf_only: bool,
 ):
     try:
-        export_format = normalize_format(format, output, format_form, output_form)
+        export_formats = collect_formats(
+            formats, format, output, formats_form, format_form, output_form
+        )
     except DocumentError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
@@ -389,19 +443,20 @@ async def _recognize_upload(
     if pdf_only and not pdf:
         raise HTTPException(status_code=400, detail="Upload is not a PDF.")
     if pdf:
-        return _recognize_pdf(app, payload, export_format)
-    if export_format == "json":
-        return OcrResponse(**ocr_body(_run(app, payload)))
-    return render_document(document_body([_run(app, payload)]), export_format)
+        return _recognize_pdf(app, payload, export_formats)
+    result = _run(app, payload)
+    if export_formats == ["json"]:
+        return OcrResponse(**ocr_body(result))
+    return render_document(document_body([result]), export_formats)
 
 
-def _recognize_pdf(app, payload: bytes, export_format: str):
+def _recognize_pdf(app, payload: bytes, export_formats: list[str]):
     try:
         images = rasterize_pdf(payload)
     except DocumentError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     results = _run_many(app, images)
-    return render_document(document_body(results), export_format)
+    return render_document(document_body(results), export_formats)
 
 
 def _engine(app: FastAPI):

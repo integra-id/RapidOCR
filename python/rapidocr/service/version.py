@@ -1,15 +1,16 @@
 # -*- encoding: utf-8 -*-
 """Identity of the rapidocr-id HTTP service.
 
-1.0.0 was the first release of this service image. 1.1.0 adds multipage
-PDF OCR. These numbers are not the upstream RapidOCR library version.
-Override the running version at image build time with ``RAPIDOCR_ID_VERSION``.
+1.0.0 was the first release of this service image. 1.2.0 returns several
+export formats from one OCR pass. These numbers are not the upstream
+RapidOCR library version. Override the running version at image build time
+with ``RAPIDOCR_ID_VERSION``.
 """
 
 import os
 
 SERVICE_NAME = "rapidocr-id"
-SERVICE_VERSION = os.environ.get("RAPIDOCR_ID_VERSION", "1.1.0")
+SERVICE_VERSION = os.environ.get("RAPIDOCR_ID_VERSION", "1.2.0")
 
 # ONNX files baked into the image by ``python -m rapidocr.service.preload``.
 # Sizes are the ModelScope artifacts used by the default Indonesian config.

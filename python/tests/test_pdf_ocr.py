@@ -77,7 +77,7 @@ def test_pdf_formats():
     assert json_response.headers["content-type"].startswith("application/json")
     body = json_response.json()
     assert body["service"] == "rapidocr-id"
-    assert body["version"] == "1.1.0"
+    assert body["version"] == "1.2.0"
     assert body["page_count"] == 2
     assert body["elapse"] == 0.5
     assert body["pages"][0]["page"] == 1
@@ -97,6 +97,39 @@ def test_pdf_formats():
     assert html_response.headers["content-type"].startswith("text/html")
     assert "<h1>Page 2</h1>" in html_response.text
     assert "<p>LINE-2</p>" in html_response.text
+
+
+def test_multi_format_uses_one_ocr_pass():
+    engine = _Engine()
+    payload = blank_pdf(2)
+    app = create_app(loader=lambda: engine)
+    with TestClient(app) as client:
+        combined = client.post(
+            "/ocr/pdf?formats=json,md,html",
+            files={"file": ("notes.pdf", payload, "application/pdf")},
+        )
+        repeated = client.post(
+            "/ocr?format=txt&format=json",
+            files={"file": ("notes.pdf", payload, "application/pdf")},
+        )
+
+    assert engine.calls == 4
+    assert combined.headers["content-type"].startswith("application/json")
+    body = combined.json()
+    assert body["service"] == "rapidocr-id"
+    assert body["version"] == "1.2.0"
+    assert body["page_count"] == 2
+    assert body["elapse"] == 0.5
+    assert set(body["outputs"]) == {"json", "markdown", "html"}
+    assert body["outputs"]["json"]["pages"][0]["lines"][0]["text"] == "LINE-1"
+    assert body["outputs"]["json"]["pages"][1]["lines"][0]["text"] == "LINE-2"
+    assert "# Page 1" in body["outputs"]["markdown"]
+    assert "<p>LINE-2</p>" in body["outputs"]["html"]
+
+    again = repeated.json()
+    assert set(again["outputs"]) == {"txt", "json"}
+    assert "--- page 1 ---" in again["outputs"]["txt"]
+    assert again["outputs"]["json"]["pages"][0]["lines"][0]["text"] == "LINE-3"
 
 
 def test_unknown_format_and_ktp_reject_pdf():

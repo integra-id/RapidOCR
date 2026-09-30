@@ -58,7 +58,7 @@ def test_version_endpoint():
     assert response.status_code == 200
     body = response.json()
     assert body == {"service": "rapidocr-id", "version": SERVICE_VERSION}
-    assert body["version"] == "1.1.0"
+    assert body["version"] == "1.2.0"
     assert response.headers["content-type"].startswith("application/json")
 
 

@@ -53,13 +53,35 @@ def looks_like_pdf(
     return name.endswith(".pdf") or media == "application/pdf"
 
 
-def normalize_format(*candidates: Optional[str]) -> str:
-    raw = next((item for item in candidates if item), "json")
+def normalize_format(raw: str) -> str:
     key = str(raw).strip().lower()
     if key not in _FORMAT_ALIASES:
         allowed = "json, txt, md, html"
         raise DocumentError(f"Unknown format {raw!r}. Use {allowed}.")
     return _FORMAT_ALIASES[key]
+
+
+def collect_formats(*candidates: Any) -> list[str]:
+    """Read comma-separated ``formats`` and repeated ``format`` / ``output``."""
+    names: list[str] = []
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        items = candidate if isinstance(candidate, (list, tuple)) else [candidate]
+        for item in items:
+            if item is None:
+                continue
+            for piece in str(item).split(","):
+                piece = piece.strip()
+                if piece:
+                    names.append(normalize_format(piece))
+    if not names:
+        return ["json"]
+    unique: list[str] = []
+    for name in names:
+        if name not in unique:
+            unique.append(name)
+    return unique
 
 
 def rasterize_pdf(payload: bytes) -> list[np.ndarray]:
