@@ -71,7 +71,7 @@ def test_version_endpoint():
         "version": SERVICE_VERSION,
         "provider": "cpu",
     }
-    assert body["version"] == "1.5.0"
+    assert body["version"] == "1.5.1"
     assert response.headers["content-type"].startswith("application/json")
 
 

@@ -10,7 +10,7 @@ at image build time with ``RAPIDOCR_ID_VERSION``.
 import os
 
 SERVICE_NAME = "rapidocr-id"
-SERVICE_VERSION = os.environ.get("RAPIDOCR_ID_VERSION", "1.5.0")
+SERVICE_VERSION = os.environ.get("RAPIDOCR_ID_VERSION", "1.5.1")
 
 # ONNX files baked into the image by ``python -m rapidocr.service.preload``.
 # Sizes are the ModelScope artifacts used by the default Indonesian config.

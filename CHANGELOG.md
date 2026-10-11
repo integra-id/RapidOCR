@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.5.1] - 2026-10-11
+
+### Changed
+
+- Merged upstream RapidAI/RapidOCR: YAML-based model routing (`default_models.yaml`), det `limit_side_len` fix, rec `model_root_dir` fix, loading images from raw memory buffers, and model SHA256 fix.
+- Indonesian `id` routes (with aliases such as `ind`, `indonesian`) now live in `default_models.yaml` and keep the PP-OCRv6 small det/rec models.
+- `opencv-python-headless` is pinned explicitly in `requirements-service.txt`, since upstream made OpenCV optional and the service needs `cv2` for preprocess and artifacts.
+
+### Breaking
+
+- Unknown language names now raise `ValueError` instead of being matched loosely.
+
 ## [1.5.0] - 2026-09-30
 
 ### Added
