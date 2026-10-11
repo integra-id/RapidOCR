@@ -12,11 +12,7 @@ from typing import Iterable, List, Optional
 PYTHON_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PYTHON_ROOT))
 
-from rapidocr.utils.model_resolver import (
-    model_lang_prefix,
-    normalize_lang,
-    resolve_model_key,
-)
+from rapidocr.utils.model_resolver import normalize_lang, route_to_model_key
 from rapidocr.utils.typings import ModelType, OCRVersion, TaskType
 
 DEFAULT_CONFIG_YAML = PYTHON_ROOT / "rapidocr" / "config.yaml"
@@ -156,7 +152,7 @@ def select_model_info(spec: ModelSpec, registry: dict) -> dict:
             f"{spec.engine}.{spec.ocr_version}.{spec.task}"
         ) from e
 
-    model_key = _resolve_model_key(spec)
+    model_key = _route_to_model_key(spec)
     if model_key is not None:
         model_info = task_models.get(model_key)
         if not isinstance(model_info, dict):
@@ -168,13 +164,7 @@ def select_model_info(spec: ModelSpec, registry: dict) -> dict:
             )
         return model_info
 
-    try:
-        lang = model_lang_prefix(
-            TaskType(spec.task), OCRVersion(spec.ocr_version), spec.lang
-        )
-    except ValueError:
-        lang = normalize_lang(spec.lang)
-
+    lang = normalize_lang(spec.lang)
     if spec.model_type == ModelType.SERVER.value:
         for model_name, model_info in task_models.items():
             if model_name.startswith(lang) and spec.model_type in model_name:
@@ -195,7 +185,7 @@ def select_model_info(spec: ModelSpec, registry: dict) -> dict:
     )
 
 
-def _resolve_model_key(spec: ModelSpec) -> Optional[str]:
+def _route_to_model_key(spec: ModelSpec) -> Optional[str]:
     try:
         task_type = TaskType(spec.task)
         ocr_version = OCRVersion(spec.ocr_version)
@@ -203,7 +193,7 @@ def _resolve_model_key(spec: ModelSpec) -> Optional[str]:
     except ValueError:
         return None
 
-    return resolve_model_key(task_type, ocr_version, spec.lang, model_type)
+    return route_to_model_key(task_type, ocr_version, spec.lang, model_type)
 
 
 def model_info_to_assets(spec: ModelSpec, model_info: dict) -> List[WheelAsset]:
