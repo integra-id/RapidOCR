@@ -1,4 +1,8 @@
 # -*- encoding: utf-8 -*-
+import pytest
+
+pytest.importorskip("fastapi")
+
 import io
 import time
 import zipfile
