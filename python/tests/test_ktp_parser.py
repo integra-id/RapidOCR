@@ -266,7 +266,7 @@ def test_empty_input_returns_null_fields():
     assert parsed == {key: None for key in KTP_FIELDS}
 
 
-# Live service OCR text from the four previously tested cards (no images).
+# Live service OCR text from ten previously tested cards (no images).
 # Fixtures are under tests/fixtures/ktp/.
 
 _KTP_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "ktp"
@@ -370,6 +370,135 @@ def _fixture_txts(name: str) -> list[str]:
                 "issued_date": "25-09-2012",
             },
         ),
+        (
+            "tangerang",
+            {
+                "nik": "3603060105040002",
+                "nama": "DEDE SUPIAN",
+                "tempat_tgl_lahir": "TANGERANG, 01-04-2004",
+                "jenis_kelamin": "LAKI-LAKI",
+                "alamat": "KP. TEGAL KAMAL",
+                "rt_rw": "008/003",
+                "kel_desa": "RENGED",
+                "kecamatan": "KRESEK",
+                "agama": "ISLAM",
+                "status_perkawinan": "BELUM KAWIN",
+                "pekerjaan": "BELUM/TIDAK BEKERJA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "BANTEN",
+                "kabupaten_kota": "TANGERANG",
+                "issued_place": "TANGERANG",
+                "issued_date": "10-04-2023",
+            },
+        ),
+        (
+            "jakarta_timur",
+            {
+                "nik": "3216231006900004",
+                "nama": "ERIP SARIPUDIN",
+                "tempat_tgl_lahir": "BEKASI, 10-05-1990",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "O",
+                "alamat": "PONDOK KOPI",
+                "rt_rw": "001/001",
+                "kel_desa": "JATINEGARA",
+                "kecamatan": "CAKUNG",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "WIRASWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "DKI JAKARTA",
+                "kabupaten_kota": "JAKARTA TIMUR",
+                "issued_date": "02-08-2023",
+            },
+        ),
+        (
+            "jakarta_selatan",
+            {
+                "nik": "3174050601941002",
+                "nama": "WAHYUDI",
+                "tempat_tgl_lahir": "JAKARTA, 06-01-1994",
+                "jenis_kelamin": "LAKI-LAKI",
+                "alamat": "JL. MASJID CIDODOL NO 92",
+                "rt_rw": "003/011",
+                "kel_desa": "GROGOL SELATAN",
+                "kecamatan": "KEBAYORAN LAMA",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "KARYAWAN SWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "DKI JAKARTA",
+                "kabupaten_kota": "JAKARTA SELATAN",
+                "issued_date": "24-06-2017",
+            },
+        ),
+        (
+            "jombang",
+            {
+                "nik": "3517171001910001",
+                "nama": "SOFYAN AINUR ROZIQI",
+                "tempat_tgl_lahir": "JOMBANG, 10-01-1991",
+                "jenis_kelamin": "LAKI-LAKI",
+                "alamat": "DSN. RANDUWATANG KIDUL",
+                "rt_rw": "003/002",
+                "kel_desa": "RANDUWATANG",
+                "kecamatan": "KUDU",
+                "agama": "ISLAM",
+                "status_perkawinan": "BELUM KAWIN",
+                "pekerjaan": "PELAJAR/MAHASISWA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "10-01-2017",
+                "provinsi": "JAWA TIMUR",
+                "kabupaten_kota": "JOMBANG",
+            },
+        ),
+        (
+            "mamuju_a",
+            {
+                "nik": "7600001234567890",
+                "nama": "NAMA LENGKAP",
+                "tempat_tgl_lahir": "MAMUJU, 01-01-1990",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "O",
+                "alamat": "JL. CONTOH ALAMAT",
+                "rt_rw": "001/002",
+                "kel_desa": "KELURAHAN CONTOH",
+                "kecamatan": "KECAMATAN CONTOH",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "WIRASWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "SULAWESI BARAT",
+                "kabupaten_kota": "MAMUJU",
+                "issued_place": "MAMUJU",
+                "issued_date": "01-06-2024",
+            },
+        ),
+        (
+            "mamuju_b",
+            {
+                "nik": "7600001234567890",
+                "nama": "NAMA LENGKAP",
+                "tempat_tgl_lahir": "MAMUJU, 01-01-1990",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "O",
+                "rt_rw": "001/002",
+                "kel_desa": "KELURAHAN CONTOH",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "WIRASWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "SULAWESI BARAT",
+                "kabupaten_kota": "MAMUJU",
+                "issued_place": "MAMUJU",
+                "issued_date": "01-01-2017",
+            },
+        ),
     ],
 )
 def test_live_ocr_fixtures(name, expected):
@@ -454,3 +583,45 @@ def test_alamat_keeps_desa_prefix_and_corrects_trailing_place():
 
     assert parsed["alamat"] == "DESA PETANJUNGAN"
     assert parsed["kel_desa"] == "PETANJUNGAN"
+
+
+
+def test_labeled_template_nik_is_kept():
+    parsed = parse_ktp(["NIK", "7600001234567890", "Nama", "NAMA LENGKAP"])
+
+    assert is_valid_nik("7600001234567890") is False
+    assert parsed["nik"] == "7600001234567890"
+    assert parsed["nama"] == "NAMA LENGKAP"
+
+
+def test_dotted_birth_date_and_gender_typo():
+    parsed = parse_ktp(
+        [
+            "Tempal/Tgi Lahir",
+            "JOMBANG.10.01-1991",
+            "Jenis Ketanin",
+            "LAKI LANI",
+            "Status Perluwinan: BEL UM KAWIN",
+            "Berlaku Hingga",
+            ":SEUMURHIDUP",
+        ]
+    )
+
+    assert parsed["tempat_tgl_lahir"] == "JOMBANG, 10-01-1991"
+    assert parsed["jenis_kelamin"] == "LAKI-LAKI"
+    assert parsed["status_perkawinan"] == "BELUM KAWIN"
+    assert parsed["berlaku_hingga"] == "SEUMUR HIDUP"
+
+
+def test_dki_kota_header_without_kota_prefix():
+    parsed = parse_ktp(
+        [
+            "PROVINSI DKI JAKARTA",
+            "JAKARTA TIMUR",
+            "NIK",
+            "3216231006900004",
+        ]
+    )
+
+    assert parsed["provinsi"] == "DKI JAKARTA"
+    assert parsed["kabupaten_kota"] == "JAKARTA TIMUR"

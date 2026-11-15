@@ -8,13 +8,13 @@ Unknown strings are left unchanged.
 _NAME_TOKENS = """
 abdul abdullah ade adi agung agus ahmad aisyah ajeng ali amin aminah andi
 andri angga ani anita anton anwar ari arif asep ayu bagus bambang basuki bayu
-binti bin budi cahya cahyadi citra dani dedi deni dewi dian diah dimas dina dwi
+binti bin budi cahya cahyadi citra dani dede dedi deni dewi dian diah dimas dina dwi
 eka eko endang fadli fahmi farah farid fauzi fitri gita hadi hakim halim hana
 hendra hendri heri heru hidayat ika imam indah indra irfan iwan joko kurnia
 kurniawan lestari lia lina lisa lukman maman maya mega muhamad muhammad
 mulyadi mulyana nanda ningsih nova nur nurul oki putra putri rahayu rahma
 rahman rahmat rani ratna reza rian rina rio rizki rizky rohman rosyadi rudi
-rusdi sari setiawan siti slamet sri suci surya susanto sutisna syamsul taufik
+rusdi sari setiawan siti slamet sri suci supian surya susanto sutisna syamsul taufik
 tri umar utami wahyu wati wawan wibowo wijaya wulan yani yanti yoga yogi yudi
 yulia yunita yusuf zainal
 """
@@ -185,8 +185,70 @@ GARUT
 SUKAMAJU
 GAMBIR
 CIKANCUNG
+RENGED
+KRESEK
+TEGAL KAMAL
+JATINEGARA
+CAKUNG
+PONDOK KOPI
+GROGOL SELATAN
+KEBAYORAN LAMA
+KEBAYORAN BARU
+KEBAYORAN
+JAKARTA TIMUR
+JAKARTA SELATAN
+JAKARTA BARAT
+JAKARTA UTARA
+JAKARTA PUSAT
+RANDUWATANG
+RANDUWATANG KIDUL
+KUDU
+JOMBANG
+MAMUJU
+TANGERANG
+BANTEN
+CIDODOL
 """
 
 PLACE_GAZETTEER = tuple(
     line.strip().upper() for line in _PLACE_NAMES.splitlines() if line.strip()
 )
+
+STATUS_KAWIN_CANON = (
+    "BELUM KAWIN",
+    "KAWIN",
+    "CERAI HIDUP",
+    "CERAI MATI",
+)
+
+# Kota/kabupaten lines sometimes omit the KABUPATEN/KOTA prefix, especially
+# on DKI cards ("JAKARTA TIMUR" under "PROVINSI DKI JAKARTA").
+KABUPATEN_KOTA_CANON = (
+    "JAKARTA TIMUR",
+    "JAKARTA SELATAN",
+    "JAKARTA BARAT",
+    "JAKARTA UTARA",
+    "JAKARTA PUSAT",
+    "TANGERANG",
+    "KOTA TANGERANG",
+    "KABUPATEN TANGERANG",
+    "JOMBANG",
+    "MAMUJU",
+    "SLEMAN",
+    "GARUT",
+    "PEMALANG",
+    "BEKASI",
+    "KOTA BEKASI",
+    "KABUPATEN BEKASI",
+    "GUNUNGKIDUL",
+)
+
+# Compact typo repairs for cardinal directions in place names.
+DIRECTION_TYPOS = {
+    "TUMUR": "TIMUR",
+    "TMUR": "TIMUR",
+    "SELTAN": "SELATAN",
+    "SLATAN": "SELATAN",
+    "UTATA": "UTARA",
+    "BARAI": "BARAT",
+}

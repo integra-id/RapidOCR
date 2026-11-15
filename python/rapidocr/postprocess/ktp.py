@@ -15,13 +15,16 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from .ktp_lexicon import (
     AGAMA_CANON,
+    DIRECTION_TYPOS,
     GOL_DARAH_CANON,
+    KABUPATEN_KOTA_CANON,
     NAME_LEXICON,
     PEKERJAAN_ALIAS,
     PEKERJAAN_CANON,
     PLACE_GAZETTEER,
     PLACE_PREFIXES,
     PLACE_SUFFIXES,
+    STATUS_KAWIN_CANON,
 )
 
 KTP_FIELDS = (
@@ -73,8 +76,8 @@ _GELAR = r"(?:(?:dr|drs|ir|prof|hj|h)\.\s*)?(?:[A-Za-z]{1,3}\.)+[A-Za-z]{1,4}\.?
 _GELAR_LINE_RE = re.compile(rf"(?i)^(?:{_GELAR})$")
 _GELAR_TAIL_RE = re.compile(rf"(?i)(?:,|\s)\s*({_GELAR})\s*$")
 _ADDR_ABBREV_RE = re.compile(r"(?i)\b(KP|JL|JLN|GG|DS|DK|DSN|LRG|PERUM|KOMP)\.(?=\S)")
-_DATE_RE = re.compile(r"\d{2}[-/]\d{2}[-/]\d{4}")
-_LONE_DATE_RE = re.compile(r"^(\d{2}[-/]\d{2}[-/]\d{4})$")
+_DATE_RE = re.compile(r"\d{2}[-/.]\d{2}[-/.]\d{4}")
+_LONE_DATE_RE = re.compile(r"^(\d{2}[-/.]\d{2}[-/.]\d{4})$")
 _PLACE_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z .'-]{1,40}$")
 _NOT_PLACE = {
     "SEUMUR HIDUP",
@@ -169,6 +172,12 @@ _GLUED_PLACES = {
     "PAPUASELATAN": "PAPUA SELATAN",
     "PAPUATENGAH": "PAPUA TENGAH",
     "PAPUAPEGUNUNGAN": "PAPUA PEGUNUNGAN",
+    "JAKARTATIMUR": "JAKARTA TIMUR",
+    "JAKARTASELATAN": "JAKARTA SELATAN",
+    "JAKARTABARAT": "JAKARTA BARAT",
+    "JAKARTAUTARA": "JAKARTA UTARA",
+    "JAKARTAPUSAT": "JAKARTA PUSAT",
+    "JAKARTATUMUR": "JAKARTA TIMUR",
 }
 
 
@@ -201,6 +210,8 @@ def parse_ktp(
 
     _recover_nama(fields, lines, used)
     _recover_alamat(fields, lines, used)
+    _recover_kabupaten(fields, lines, used)
+    _recover_pekerjaan(fields, lines, used)
     _assign_issued(fields, lines, used)
     return fields
 
@@ -217,12 +228,17 @@ def is_valid_nik(nik: str) -> bool:
     return 1 <= day <= 31 and 1 <= month <= 12
 
 
-def find_nik(text: str) -> Optional[str]:
-    """Return the first valid 16-digit NIK in ``text``, ignoring separators."""
+def find_nik(text: str, *, strict: bool = True) -> Optional[str]:
+    """Return the first 16-digit NIK in ``text``, ignoring separators.
+
+    ``strict`` (the default) also requires a plausible birth-date slice so
+    random digit runs are ignored. Pass ``strict=False`` when the digits
+    sit on a labeled NIK field, including synthetic template cards.
+    """
     compact = re.sub(r"(?<=\d)[\s-]+(?=\d)", "", text or "")
     for match in re.finditer(r"\d{16}", compact):
         candidate = match.group()
-        if is_valid_nik(candidate):
+        if not strict or is_valid_nik(candidate):
             return candidate
     return None
 
@@ -400,8 +416,16 @@ def _restore_place_spacing(text: str) -> str:
     return re.sub(r"\s+", " ", spaced).strip()
 
 
+def _fix_direction_typos(text: str) -> str:
+    parts = []
+    for token in text.split():
+        bare = token.rstrip(".,")
+        parts.append(DIRECTION_TYPOS.get(bare, token))
+    return " ".join(parts)
+
+
 def _expand_glued_place(value: str) -> str:
-    upper = _normalize_spacing(value).upper()
+    upper = _fix_direction_typos(_normalize_spacing(value).upper())
     compact = re.sub(r"[^A-Z]", "", upper)
     if compact in _GLUED_PLACES:
         return _GLUED_PLACES[compact]
@@ -469,8 +493,14 @@ def _clean_nama(value: str) -> Optional[str]:
     return body
 
 
+def _normalize_dotted_date(text: str) -> str:
+    """Turn 10.01-1991 / 10.01.1991 into 10-01-1991."""
+    return re.sub(r"(\d{2})[.](\d{2})[-/.](\d{4})", r"\1-\2-\3", text)
+
+
 def _parse_place_date(text: str) -> Optional[tuple[str, str]]:
-    match = re.match(r"^(.+?)[,.]\s*(\d{2}[-/]\d{2}[-/]\d{4})$", text.strip())
+    text = _normalize_dotted_date(text.strip())
+    match = re.match(r"^(.+?)[,.]\s*(\d{2}[-/.]\d{2}[-/.]\d{4})$", text)
     if match is None:
         return None
     place = match.group(1).strip(" ,.")
@@ -480,8 +510,8 @@ def _parse_place_date(text: str) -> Optional[tuple[str, str]]:
 
 
 def _clean_ttl(value: str) -> Optional[str]:
-    text = _normalize_spacing(value).upper()
-    text = re.sub(r"\.(?=\d{2}[-/]\d{2}[-/]\d{4})", ", ", text)
+    text = _normalize_dotted_date(_normalize_spacing(value).upper())
+    text = re.sub(r"\.(?=\d{2}[-/.]\d{2}[-/.]\d{4})", ", ", text)
     pair = _parse_place_date(text)
     if pair is not None:
         place, date = pair
@@ -493,9 +523,13 @@ def _clean_ttl(value: str) -> Optional[str]:
 def _clean_gender(value: str) -> Optional[str]:
     text = _normalize_spacing(value).upper()
     compact = re.sub(r"[^A-Z]", "", text)
-    if compact == "LAKILAKI":
+    if compact == "LAKILAKI" or (
+        len(compact) >= 7 and _levenshtein(compact, "LAKILAKI") <= 2
+    ):
         return "LAKI-LAKI"
-    if compact == "PEREMPUAN":
+    if compact == "PEREMPUAN" or (
+        len(compact) >= 7 and _levenshtein(compact, "PEREMPUAN") <= 2
+    ):
         return "PEREMPUAN"
     return text or None
 
@@ -629,13 +663,33 @@ def _clean_pekerjaan(value: str) -> Optional[str]:
     text = _normalize_spacing(value).upper()
     if not text:
         return None
-    matched = _match_catalog(text, PEKERJAAN_CANON, PEKERJAAN_ALIAS)
+    matched = _match_catalog(text, PEKERJAAN_CANON, PEKERJAAN_ALIAS, loose=True)
     return matched or text
+
+
+def _clean_status(value: str) -> Optional[str]:
+    text = _normalize_spacing(value).upper()
+    if not text:
+        return None
+    return _match_catalog(text, STATUS_KAWIN_CANON, loose=True) or text
+
+
+def _clean_rt_rw(value: str) -> Optional[str]:
+    text = _normalize_spacing(value)
+    text = re.sub(r"\s*/\s*", "/", text)
+    return text or None
+
+
+def _clean_berlaku(value: str) -> Optional[str]:
+    text = _normalize_spacing(value).upper()
+    if re.sub(r"[^A-Z]", "", text) == "SEUMURHIDUP":
+        return "SEUMUR HIDUP"
+    return text or None
 
 
 def _clean_field(key: str, value: str) -> Optional[str]:
     if key == "nik":
-        return find_nik(value)
+        return find_nik(value, strict=False)
     if key == "nama":
         return _clean_nama(value)
     if key == "jenis_kelamin":
@@ -648,15 +702,28 @@ def _clean_field(key: str, value: str) -> Optional[str]:
         return _clean_agama(value)
     if key == "pekerjaan":
         return _clean_pekerjaan(value)
+    if key == "status_perkawinan":
+        return _clean_status(value)
+    if key == "rt_rw":
+        return _clean_rt_rw(value)
+    if key == "berlaku_hingga":
+        return _clean_berlaku(value)
     if key in {"kel_desa", "kecamatan"}:
         text = _correct_place_name(value, whole=True)
         return text or None
     if key == "alamat":
-        text = _correct_place_name(value, whole=False)
+        text = re.sub(r"(?i)^(?:OSN|0SN)\b", "DSN", _strip_leading_colon(value))
+        text = re.sub(
+            r"(?i)\b(KP|JL|JLN|GG|DS|DK|DSN|LRG|PERUM|KOMP)(?!\.)(?=\s|$)",
+            lambda match: match.group(1).upper() + ".",
+            text,
+        )
+        text = _correct_place_name(text, whole=False)
         return text or None
-    if key in {"provinsi", "kabupaten_kota"}:
+    if key in {"provinsi", "kabupaten_kota", "issued_place"}:
         text = _expand_glued_place(value)
-        return text or None
+        matched = _match_catalog(text, KABUPATEN_KOTA_CANON, loose=True)
+        return matched or text or None
 
     text = _normalize_spacing(value).upper()
     return text or None
@@ -785,7 +852,20 @@ def _assign(fields: dict[str, Optional[str]], key: str, value: str) -> bool:
 
 def _take_nik(fields: dict[str, Optional[str]], lines: Sequence[str]) -> None:
     for line in lines:
-        nik = find_nik(line)
+        nik = find_nik(line, strict=True)
+        if nik:
+            fields["nik"] = nik
+            return
+    # Labeled NIK rows, including synthetic 16-digit templates whose date
+    # slice is not a real birthday.
+    for index, line in enumerate(lines):
+        segments = _split_labels(line)
+        if not segments or segments[0][0] != "nik":
+            continue
+        blob = segments[0][1]
+        if not blob and index + 1 < len(lines):
+            blob = lines[index + 1]
+        nik = find_nik(blob or line, strict=False)
         if nik:
             fields["nik"] = nik
             return
@@ -824,6 +904,20 @@ def _consume_ttl_stump(
     return 0
 
 
+def _repeated_label_value(key: str, line: str) -> Optional[str]:
+    """Whole next line is the value when it restates the label without a colon.
+
+    Template cards print 'NAMA LENGKAP' or 'KELURAHAN CONTOH' as the value
+    itself. Treating that as a new label would drop the first word.
+    """
+    if re.search(r"[:：]", line):
+        return None
+    segments = _split_labels(line)
+    if len(segments) == 1 and segments[0][0] == key:
+        return _strip_leading_colon(line)
+    return None
+
+
 def _consume_at(
     fields: dict[str, Optional[str]], lines: Sequence[str], index: int, used: set[int]
 ) -> int:
@@ -848,6 +942,13 @@ def _consume_at(
 
     if len(segments) == 1 and not segments[0][1]:
         key = segments[0][0]
+        if index + 1 < len(lines):
+            repeated = _repeated_label_value(key, lines[index + 1])
+            if repeated is not None:
+                accepted = _assign(fields, key, repeated)
+                if accepted:
+                    used.update((index, index + 1))
+                    return 2
         if index + 1 >= len(lines) or _is_structural(lines[index + 1]):
             used.add(index)
             return 1
@@ -885,7 +986,7 @@ def _consume_at(
 
 
 def _norm_date(value: str) -> str:
-    return value.replace("/", "-")
+    return _normalize_dotted_date(value).replace("/", "-")
 
 
 def _date_in(value: Optional[str]) -> Optional[str]:
@@ -976,6 +1077,17 @@ def _recover_alamat(
         candidates.append(label_at - 1)
     if label_at + 1 < len(lines) and (label_at + 1) not in used:
         candidates.append(label_at + 1)
+    # Column-interleaved OCR often parks the street line just above RT/RW.
+    for index, line in enumerate(lines):
+        segments = _split_labels(line)
+        if (
+            segments
+            and segments[0][0] == "rt_rw"
+            and index > 0
+            and (index - 1) not in used
+            and (index - 1) not in candidates
+        ):
+            candidates.append(index - 1)
 
     for index in candidates:
         if _is_issue_place_line(lines, index):
@@ -985,6 +1097,51 @@ def _recover_alamat(
         if _assign(fields, "alamat", lines[index]):
             used.add(index)
             return
+
+
+def _recover_kabupaten(
+    fields: dict[str, Optional[str]], lines: Sequence[str], used: set[int]
+) -> None:
+    """Use an unlabeled kota line sitting under the provinsi header."""
+    if fields["kabupaten_kota"]:
+        return
+    for index, line in enumerate(lines):
+        if find_nik(line, strict=False):
+            break
+        segments = _split_labels(line)
+        if segments and segments[0][0] == "nik":
+            break
+        if index in used:
+            continue
+        text = _strip_leading_colon(_squash_space(line))
+        if not text or _DATE_RE.search(text) or _is_structural(text):
+            continue
+        cleaned = _expand_glued_place(text)
+        matched = _match_catalog(cleaned, KABUPATEN_KOTA_CANON, loose=True)
+        if not matched and len(re.sub(r"[^A-Za-z]", "", text)) < 5:
+            continue
+        if _assign(fields, "kabupaten_kota", matched or cleaned):
+            used.add(index)
+            return
+
+
+def _recover_pekerjaan(
+    fields: dict[str, Optional[str]], lines: Sequence[str], used: set[int]
+) -> None:
+    """Claim a leftover pekerjaan line when kewarganegaraan jumped ahead."""
+    if fields["pekerjaan"]:
+        return
+    for index, line in enumerate(lines):
+        if index in used:
+            continue
+        text = _strip_leading_colon(line)
+        matched = _match_catalog(text, PEKERJAAN_CANON, PEKERJAAN_ALIAS, loose=True)
+        if not matched:
+            continue
+        fields["pekerjaan"] = matched
+        used.add(index)
+        return
+
 
 
 def _assign_issued(
@@ -1041,4 +1198,4 @@ def _assign_issued(
     if fields["issued_date"] is None:
         fields["issued_date"] = date
     if place and fields["issued_place"] is None:
-        fields["issued_place"] = _expand_glued_place(place)
+        _assign(fields, "issued_place", place)
