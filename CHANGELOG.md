@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.5.2] - 2026-11-15
+
+### Added
+
+- Empty `gol_darah` is filled with `-` when the Gol. Darah label is present but has no valid A/B/AB/O (optional `+/-`) value, or when a NIK and gender were already parsed. The printed dash is often dropped by OCR.
+- `RAPIDOCR_MAX_SIDE` (default 1280) caps the longest image side before OCR so a 3072×4096 phone photo stays near 0.6s on CPU. Set `0` to keep the library cap of 2000. The same cap is passed as `Global.max_side_len` on each engine.
+- `RAPIDOCR_WORKERS` runs a pool of in-process OCR sessions (default: half the CPU count, clamped to 2–4). The global inference lock is gone, and HTTP handlers run inference in a thread pool so the event loop is not blocked. Concurrent HTTP and `/jobs` pages can run at the same time. `RAPIDOCR_INTRA_THREADS` defaults to `cores / workers` so the sessions share the machine fairly. Prefer this pool over `uvicorn --workers`; multiple OS processes would reload the models.
+
+### Changed
+
+- `/health` and `/version` report `workers` and `max_side`.
+
 ## [1.5.1] - 2026-10-11
 
 ### Changed

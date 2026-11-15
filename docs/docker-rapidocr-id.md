@@ -2,7 +2,7 @@
 
 Layanan OCR bahasa Indonesia yang bisa dijalankan sendiri. OCR umum adalah API utama. Parser dokumen, saat ini KTP, adalah tambahan.
 
-Versi layanan saat ini adalah **1.5.1**. `1.0.0` adalah rilis pertama. Angka itu untuk image `rapidocr-id`, bukan versi pustaka upstream RapidOCR.
+Versi layanan saat ini adalah **1.5.2**. `1.0.0` adalah rilis pertama. Angka itu untuk image `rapidocr-id`, bukan versi pustaka upstream RapidOCR.
 
 ## Model di dalam image
 
@@ -22,17 +22,17 @@ Dari root repositori:
 docker compose -f docker/docker-compose.rapidocr-id.yml up --build
 ```
 
-Hanya membangun image lokal `rapidocr-id:1.5.1`:
+Hanya membangun image lokal `rapidocr-id:1.5.2`:
 
 ```bash
-docker build -f docker/Dockerfile.rapidocr-id --build-arg RAPIDOCR_ID_VERSION=1.5.1 -t rapidocr-id:1.5.1 .
+docker build -f docker/Dockerfile.rapidocr-id --build-arg RAPIDOCR_ID_VERSION=1.5.2 -t rapidocr-id:1.5.2 .
 ```
 
 Tarik image yang sudah diterbitkan:
 
 ```bash
-docker pull ghcr.io/integra-id/rapidocr-id:1.5.1
-docker run --rm -p 8000:8000 ghcr.io/integra-id/rapidocr-id:1.5.1
+docker pull ghcr.io/integra-id/rapidocr-id:1.5.2
+docker run --rm -p 8000:8000 ghcr.io/integra-id/rapidocr-id:1.5.2
 ```
 
 Tag mengambang yang ikut diterbitkan: `1.0`, `1`, dan `latest`.
@@ -53,13 +53,13 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 `GET /health`
 
 ```json
-{"status": "ok", "service": "rapidocr-id", "version": "1.5.1", "lang": "id", "models_ready": true}
+{"status": "ok", "service": "rapidocr-id", "version": "1.5.2", "lang": "id", "models_ready": true}
 ```
 
 `GET /version`
 
 ```json
-{"service": "rapidocr-id", "version": "1.5.1"}
+{"service": "rapidocr-id", "version": "1.5.2"}
 ```
 
 `POST /ocr`
@@ -67,7 +67,7 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "elapse": 0.42,
   "lines": [{"text": "NIK", "score": 0.99, "box": [[0, 1], [10, 1], [10, 2], [0, 2]]}]
 }
@@ -78,7 +78,7 @@ Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu a
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "elapse": 0.42,
   "lines": [{"text": "Namá", "score": 0.97}],
   "fields": {"nik": "3327011112890001", "nama": "RISWANDI", "tempat_tgl_lahir": null}
@@ -108,6 +108,11 @@ Batas keras tetap 20 halaman yang di-raster dan 20 MB.
 
 Jika `RAPIDOCR_API_KEY` diisi, semua rute selain `/health` meminta header `X-API-Key` atau `Authorization: Bearer`. `RAPIDOCR_RATE_LIMIT` membatasi 60 permintaan per menit; `0` mematikan batas.
 
+Gambar besar diperkecil sebelum OCR. `RAPIDOCR_MAX_SIDE` (bawaan 1280) membatasi sisi terpanjang dalam piksel; `0` memakai batas pustaka 2000. `RAPIDOCR_WORKERS` (bawaan: setengah jumlah CPU, paling sedikit 2 dan paling banyak 4) membuat beberapa sesi model dalam satu proses, jadi permintaan yang datang bersamaan tidak mengantri di satu kunci global. `RAPIDOCR_INTRA_THREADS` (bawaan `cores / workers`) mengatur thread ONNX per sesi. Jangan memakai `uvicorn --workers` sebagai ganti pool ini: setiap proses akan memuat model lagi.
+
+`/health` dan `/version` menampilkan `workers` dan `max_side`.
+
+
 `format=csv` menyusun tabel dari kotak yang sejajar. Markdown/HTML menaikkan baris yang lebih tinggi menjadi judul dan baris berbutir menjadi daftar. Sel yang digabung dan garis tabel tidak dikenali.
 
 ```bash
@@ -123,8 +128,8 @@ curl -s -F file=@surat.jpg http://127.0.0.1:8000/detect/artifacts
 Image bawaan tetap CPU. Image GPU terpisah dan tidak menggantikan Dockerfile produksi:
 
 ```bash
-docker build -f docker/Dockerfile.rapidocr-id.gpu -t rapidocr-id:1.5.1-gpu .
-docker run --rm --gpus all -p 8000:8000 -e RAPIDOCR_PROVIDER=cuda rapidocr-id:1.5.1-gpu
+docker build -f docker/Dockerfile.rapidocr-id.gpu -t rapidocr-id:1.5.2-gpu .
+docker run --rm --gpus all -p 8000:8000 -e RAPIDOCR_PROVIDER=cuda rapidocr-id:1.5.2-gpu
 ```
 
 `RAPIDOCR_PROVIDER=cuda` meminta CUDA. Jika provider itu tidak tersedia, layanan memakai CPU. `/health` dan `/version` memuat `provider`. OpenVINO dan TensorRT tetap di image pengembangan.
@@ -158,11 +163,11 @@ Satu nilai `format` tetap mengembalikan format itu saja. Beberapa format (`forma
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "page_count": 2,
   "elapse": 0.8,
   "outputs": {
-    "json": {"service": "rapidocr-id", "version": "1.5.1", "page_count": 2, "pages": []},
+    "json": {"service": "rapidocr-id", "version": "1.5.2", "page_count": 2, "pages": []},
     "markdown": "# Page 1\n\n...",
     "html": "<!DOCTYPE html>..."
   }
@@ -176,7 +181,7 @@ JSON PDF:
 ```json
 {
   "service": "rapidocr-id",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "page_count": 2,
   "elapse": 0.8,
   "text": "baris halaman satu\n\nbaris halaman dua",

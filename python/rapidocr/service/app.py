@@ -9,8 +9,8 @@ files while it is built, so a request does not fetch them.
 
 from __future__ import annotations
 
+import asyncio
 import os
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -30,7 +30,7 @@ from rapidocr.postprocess import (
     parse_npwp,
 )
 from rapidocr.postprocess.fuzzy_labels import compact as compact_text
-from rapidocr.service.preprocess import apply_crop, parse_preprocess, preprocess_bgr
+from rapidocr.service.preprocess import apply_crop, parse_preprocess, preprocess_bgr, resize_max_side, scale_result_boxes
 from rapidocr.service.artifacts import detect_artifacts
 from rapidocr.service.auth import install_guard
 from rapidocr.service.jobs import JobStore, expand_uploads, job_root
@@ -47,7 +47,15 @@ from rapidocr.service.pdf import (
     render_markdown,
     render_text,
 )
-from rapidocr.service.runtime import active_provider, engine_params, requested_provider
+from rapidocr.service.runtime import (
+    active_provider,
+    effective_max_side,
+    engine_params,
+    max_side,
+    requested_provider,
+    worker_count,
+)
+from rapidocr.service.pool import EnginePool, build_pool
 from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
 from rapidocr.utils.load_image import LoadImage, LoadImageError
 from rapidocr.utils.log import logger
@@ -56,9 +64,6 @@ DEFAULT_MODEL_DIR = "/opt/rapidocr/models"
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_PDF_BYTES = 20 * 1024 * 1024
 DEFAULT_MIN_SCORE = 0.5
-_infer_lock = threading.Lock()
-
-
 def requested_cuda_unavailable() -> bool:
     return requested_provider() == "cuda" and active_provider() != "cuda"
 
@@ -116,12 +121,16 @@ class HealthResponse(BaseModel):
     lang: str
     provider: str
     models_ready: bool
+    workers: int
+    max_side: int
 
 
 class VersionResponse(BaseModel):
     service: str
     version: str
     provider: str
+    workers: int
+    max_side: int
 
 
 class Artifact(BaseModel):
@@ -413,11 +422,18 @@ async def _read_upload(file: UploadFile, limit: int) -> bytes:
 def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.engine = loader()
+        pool = build_pool(loader)
+        app.state.pool = pool
+        app.state.engine = pool
         app.state.jobs = JobStore(
             job_root(), runner=lambda files, options: _run_job(app, files, options)
         )
         app.state.ready = True
+        logger.info(
+            "OCR pool ready: %s session(s), max_side=%s",
+            pool.size,
+            effective_max_side(),
+        )
         yield
         app.state.ready = False
 
@@ -448,6 +464,8 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             "lang": "id",
             "provider": active_provider(),
             "models_ready": ready,
+            "workers": worker_count(),
+            "max_side": effective_max_side(),
         }
 
     @app.get("/version", response_model=VersionResponse)
@@ -456,6 +474,8 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             "service": SERVICE_NAME,
             "version": SERVICE_VERSION,
             "provider": active_provider(),
+            "workers": worker_count(),
+            "max_side": effective_max_side(),
         }
 
     @app.post(
@@ -570,7 +590,7 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         except DocumentError as exc:
             raise _as_http(exc) from exc
         image = _prepare_page(_decode_image(payload), mode, None, False)
-        result = _run(app, image)
+        result = await _run_async(app, image)
         return {
             "service": SERVICE_NAME,
             "version": SERVICE_VERSION,
@@ -721,7 +741,7 @@ async def _parse_image(app, file, parser, field_names, preprocess, min_score, cr
         raise _as_http(exc) from exc
     score = _checked_min_score(min_score)
     image = _prepare_page(_decode_image(payload), mode, crop, True)
-    result = _run(app, image)
+    result = await _run_async(app, image)
     body = parse_document_body(result, parser, field_names, score)
     body["artifacts"] = detect_artifacts(image, body["lines"])
     return body
@@ -772,15 +792,24 @@ async def _recognize_upload(
         raise _as_http(exc) from exc
     score = _checked_min_score(min_score)
     if pdf:
-        return _recognize_pdf(
-            app, payload, export_formats, mode, score, pages, max_pages, dpi, crop
+        return await asyncio.to_thread(
+            _recognize_pdf,
+            app,
+            payload,
+            export_formats,
+            mode,
+            score,
+            pages,
+            max_pages,
+            dpi,
+            crop,
         )
     if mode == "off" and not crop:
         image = _try_decode(payload)
-        result = _run(app, payload if image is None else image)
+        result = await _run_async(app, payload if image is None else image)
     else:
         image = _prepare_page(_decode_image(payload), mode, crop, True)
-        result = _run(app, image)
+        result = await _run_async(app, image)
     artifacts = (
         [] if image is None else detect_artifacts(image, _ocr_lines(result, score))
     )
@@ -872,26 +901,54 @@ def _try_decode(payload: bytes):
         return None
 
 
-def _engine(app: FastAPI):
-    engine = getattr(app.state, "engine", None)
-    if engine is None:
-        raise HTTPException(status_code=503, detail="OCR engine is not ready.")
-    return engine
+def _pool(app: FastAPI) -> EnginePool:
+    pool = getattr(app.state, "pool", None)
+    if pool is None:
+        engine = getattr(app.state, "engine", None)
+        if engine is None:
+            raise HTTPException(status_code=503, detail="OCR engine is not ready.")
+        pool = engine if isinstance(engine, EnginePool) else EnginePool([engine])
+        app.state.pool = pool
+    return pool
+
+
+def _maybe_downscale(payload):
+    cap = max_side()
+    if cap <= 0 or not isinstance(payload, np.ndarray):
+        return payload, 1.0, 1.0
+    return resize_max_side(payload, cap)
+
+
+async def _run_async(app: FastAPI, payload):
+    # Keep the event loop free so concurrent HTTP requests can use the pool.
+    return await asyncio.to_thread(_run, app, payload)
+
+
+async def _run_many_async(app: FastAPI, images):
+    return await asyncio.to_thread(_run_many, app, images)
 
 
 def _run(app: FastAPI, payload):
     try:
-        with _infer_lock:
-            return _engine(app)(payload)
+        image, scale_x, scale_y = _maybe_downscale(payload)
+        return scale_result_boxes(_pool(app).run(image), scale_x, scale_y)
     except LoadImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _run_many(app: FastAPI, images):
     try:
-        with _infer_lock:
-            engine = _engine(app)
-            return [engine(image) for image in images]
+        prepared = []
+        scales = []
+        for item in images:
+            image, scale_x, scale_y = _maybe_downscale(item)
+            prepared.append(image)
+            scales.append((scale_x, scale_y))
+        results = _pool(app).run_many(prepared)
+        return [
+            scale_result_boxes(result, scale_x, scale_y)
+            for result, (scale_x, scale_y) in zip(results, scales)
+        ]
     except LoadImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

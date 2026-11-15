@@ -6,15 +6,18 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.rapidocr-id
       args:
-        RAPIDOCR_ID_VERSION: "1.5.1"
-    image: rapidocr-id:1.5.1
+        RAPIDOCR_ID_VERSION: "1.5.2"
+    image: rapidocr-id:1.5.2
     ports:
       - "8000:8000"
     environment:
       RAPIDOCR_MODEL_DIR: /opt/rapidocr/models
-      RAPIDOCR_ID_VERSION: "1.5.1"
+      RAPIDOCR_ID_VERSION: "1.5.2"
       RAPIDOCR_JOB_DIR: /data/jobs
       RAPIDOCR_JOB_TTL_HOURS: "24"
+      # RAPIDOCR_WORKERS defaults to half the CPU count, clamped to 2–4.
+      # RAPIDOCR_MAX_SIDE defaults to 1280 (0 keeps the library cap of 2000).
+      # RAPIDOCR_INTRA_THREADS defaults to cores / workers.
     volumes:
       - rapidocr-jobs:/data/jobs
     restart: unless-stopped

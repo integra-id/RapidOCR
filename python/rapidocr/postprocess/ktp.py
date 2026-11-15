@@ -213,6 +213,7 @@ def parse_ktp(
     _recover_kabupaten(fields, lines, used)
     _recover_pekerjaan(fields, lines, used)
     _assign_issued(fields, lines, used)
+    _default_gol_darah(fields, lines)
     return fields
 
 
@@ -534,12 +535,20 @@ def _clean_gender(value: str) -> Optional[str]:
     return text or None
 
 
+_BLOOD_RE = re.compile(r"^(AB|A|B|O)([+-])?$")
+
+
 def _clean_blood(value: str) -> Optional[str]:
     text = _normalize_spacing(value).upper().replace(" ", "")
-    if text in {"--", "—"}:
-        text = "-"
-    if text == "0":
-        text = "O"
+    if text in {"--", "—", "–"}:
+        return "-"
+    if text == "-":
+        return "-"
+    if text.startswith("0"):
+        text = "O" + text[1:]
+    match = _BLOOD_RE.fullmatch(text)
+    if match:
+        return match.group(1) + (match.group(2) or "")
     if text in GOL_DARAH_CANON:
         return text
     return None
@@ -848,6 +857,30 @@ def _assign(fields: dict[str, Optional[str]], key: str, value: str) -> bool:
         fields[key] = cleaned
         return True
     return False
+
+
+def _line_has_gol_darah_label(line: str) -> bool:
+    segments = _split_labels(line)
+    if any(key == "gol_darah" for key, _ in segments):
+        return True
+    header = _match_header(line)
+    return header is not None and header[0] == "gol_darah"
+
+
+def _default_gol_darah(
+    fields: dict[str, Optional[str]], lines: Sequence[str]
+) -> None:
+    """Fill an empty blood type with '-' when the card clearly has the field.
+
+    Indonesian KTPs always print Gol. Darah. When the label is present but
+    the value is missing or unreadable, or a NIK and gender were already
+    parsed (the printed dash is often dropped by OCR), use '-'.
+    """
+    if fields.get("gol_darah"):
+        return
+    saw_label = any(_line_has_gol_darah_label(line) for line in lines)
+    if saw_label or (fields.get("nik") and fields.get("jenis_kelamin")):
+        fields["gol_darah"] = "-"
 
 
 def _take_nik(fields: dict[str, Optional[str]], lines: Sequence[str]) -> None:

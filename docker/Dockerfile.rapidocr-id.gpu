@@ -3,7 +3,7 @@
 
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-ARG RAPIDOCR_ID_VERSION=1.5.1
+ARG RAPIDOCR_ID_VERSION=1.5.2
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \

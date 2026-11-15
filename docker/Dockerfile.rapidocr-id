@@ -6,13 +6,10 @@
 
 FROM python:3.11-slim-bookworm
 
-ARG RAPIDOCR_ID_VERSION=1.5.1
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     RAPIDOCR_MODEL_DIR=/opt/rapidocr/models \
-    RAPIDOCR_ID_VERSION=${RAPIDOCR_ID_VERSION} \
     SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 
 # PDF rasterization uses pypdfium2 from requirements-service.txt. That wheel
@@ -22,6 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
         libgl1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Declared after apt so a version bump can reuse the package layer.
+ARG RAPIDOCR_ID_VERSION=1.5.2
+ENV RAPIDOCR_ID_VERSION=${RAPIDOCR_ID_VERSION}
 
 WORKDIR /src/python
 

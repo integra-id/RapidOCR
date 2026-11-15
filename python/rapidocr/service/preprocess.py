@@ -124,3 +124,40 @@ def _clahe(image: np.ndarray) -> np.ndarray:
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     merged = cv2.merge((clahe.apply(lightness), green, red))
     return cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+
+
+def resize_max_side(image: np.ndarray, cap: int):
+    """Downscale so the longest side is at most ``cap``. Returns image, sx, sy.
+
+    ``sx`` and ``sy`` map resized coordinates back to the input image.
+    ``cap <= 0`` leaves the image unchanged.
+    """
+    if cap <= 0 or image is None or not hasattr(image, "shape") or len(image.shape) < 2:
+        return image, 1.0, 1.0
+    height, width = image.shape[:2]
+    long_side = max(height, width)
+    if long_side <= cap:
+        return image, 1.0, 1.0
+    scale = cap / float(long_side)
+    new_w = max(1, int(round(width * scale)))
+    new_h = max(1, int(round(height * scale)))
+    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return resized, width / float(new_w), height / float(new_h)
+
+
+def scale_result_boxes(result, scale_x: float, scale_y: float):
+    """Map OCR boxes from a downscaled image back to the input coordinates."""
+    if scale_x == 1.0 and scale_y == 1.0:
+        return result
+    boxes = getattr(result, "boxes", None)
+    if boxes is None:
+        return result
+    factor = np.array([scale_x, scale_y], dtype=np.float64)
+    try:
+        result.boxes = boxes * factor
+    except (TypeError, ValueError):
+        scaled = []
+        for box in boxes:
+            scaled.append([[float(pt[0]) * scale_x, float(pt[1]) * scale_y] for pt in box])
+        result.boxes = scaled
+    return result

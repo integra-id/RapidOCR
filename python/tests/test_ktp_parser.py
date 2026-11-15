@@ -287,7 +287,7 @@ def _fixture_txts(name: str) -> list[str]:
                 "nama": "EBTA SETIAWAN, S.T",
                 "tempat_tgl_lahir": "GUNUNGKIDUL, 12-05-1982",
                 "jenis_kelamin": "LAKI-LAKI",
-                "gol_darah": None,
+                "gol_darah": "-",
                 "alamat": "NGANGKRIK",
                 "rt_rw": "001/014",
                 "kel_desa": "TRIHARJO",
@@ -310,7 +310,7 @@ def _fixture_txts(name: str) -> list[str]:
                 "nama": "YOGI IRFAN ROSYADI, S.Pd.I",
                 "tempat_tgl_lahir": "GARUT, 23-01-1988",
                 "jenis_kelamin": "LAKI-LAKI",
-                "gol_darah": None,
+                "gol_darah": "-",
                 "alamat": "KP. CIKANCUNG",
                 "rt_rw": "001/003",
                 "kel_desa": "MARGALAKSANA",
@@ -356,7 +356,7 @@ def _fixture_txts(name: str) -> list[str]:
                 "nama": "EKO BUDIONO BIN SUNARDI",
                 "tempat_tgl_lahir": "PEMALANG, 08-09-1978",
                 "jenis_kelamin": "LAKI-LAKI",
-                "gol_darah": None,
+                "gol_darah": "-",
                 "kel_desa": "SUKARESMI",
                 "kecamatan": "CIKARANG SELATAN",
                 "agama": "ISLAM",
@@ -377,6 +377,7 @@ def _fixture_txts(name: str) -> list[str]:
                 "nama": "DEDE SUPIAN",
                 "tempat_tgl_lahir": "TANGERANG, 01-04-2004",
                 "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "-",
                 "alamat": "KP. TEGAL KAMAL",
                 "rt_rw": "008/003",
                 "kel_desa": "RENGED",
@@ -421,6 +422,7 @@ def _fixture_txts(name: str) -> list[str]:
                 "nama": "WAHYUDI",
                 "tempat_tgl_lahir": "JAKARTA, 06-01-1994",
                 "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "-",
                 "alamat": "JL. MASJID CIDODOL NO 92",
                 "rt_rw": "003/011",
                 "kel_desa": "GROGOL SELATAN",
@@ -442,6 +444,7 @@ def _fixture_txts(name: str) -> list[str]:
                 "nama": "SOFYAN AINUR ROZIQI",
                 "tempat_tgl_lahir": "JOMBANG, 10-01-1991",
                 "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "-",
                 "alamat": "DSN. RANDUWATANG KIDUL",
                 "rt_rw": "003/002",
                 "kel_desa": "RANDUWATANG",
@@ -523,7 +526,7 @@ def test_blood_type_rejects_non_abo_values():
         ]
     )
 
-    assert parsed["gol_darah"] is None
+    assert parsed["gol_darah"] == "-"
     assert parsed["alamat"] == "SUKAMAJU"
     assert parsed["nama"] == "BUDI SANTOSO"
 
@@ -625,3 +628,36 @@ def test_dki_kota_header_without_kota_prefix():
 
     assert parsed["provinsi"] == "DKI JAKARTA"
     assert parsed["kabupaten_kota"] == "JAKARTA TIMUR"
+
+
+def test_empty_gol_darah_label_defaults_to_dash():
+    parsed = parse_ktp(
+        [
+            "NIK : 3403081205820001",
+            "Nama : BUDI SANTOSO",
+            "Jenis Kelamin : LAKI-LAKI",
+            "Gol. Darah :",
+            "Alamat : NGANGKRIK",
+        ]
+    )
+    assert parsed["gol_darah"] == "-"
+    assert parsed["alamat"] == "NGANGKRIK"
+    assert parsed["jenis_kelamin"] == "LAKI-LAKI"
+
+
+def test_blood_type_keeps_optional_rh():
+    parsed = parse_ktp(
+        [
+            "NIK : 3403081205820001",
+            "Nama : BUDI SANTOSO",
+            "Jenis Kelamin : PEREMPUAN",
+            "Gol. Darah : O+",
+        ]
+    )
+    assert parsed["gol_darah"] == "O+"
+
+
+def test_empty_input_still_leaves_gol_darah_null():
+    parsed = parse_ktp([])
+    assert parsed["gol_darah"] is None
+

@@ -10,6 +10,7 @@ import pypdfium2 as pdfium
 from fastapi.testclient import TestClient
 
 from rapidocr.service.app import create_app
+from rapidocr.service.version import SERVICE_VERSION
 from rapidocr.service.pdf import MAX_PDF_PAGES, rasterize_pdf
 
 
@@ -42,7 +43,8 @@ class _Engine:
 
 
 def _client():
-    return TestClient(create_app(loader=_Engine))
+    engine = _Engine()
+    return TestClient(create_app(loader=lambda: engine))
 
 
 def test_rasterize_two_page_pdf():
@@ -81,7 +83,7 @@ def test_pdf_formats():
     assert json_response.headers["content-type"].startswith("application/json")
     body = json_response.json()
     assert body["service"] == "rapidocr-id"
-    assert body["version"] == "1.5.1"
+    assert body["version"] == SERVICE_VERSION
     assert body["page_count"] == 2
     assert body["elapse"] == 0.5
     assert body["pages"][0]["page"] == 1
@@ -121,7 +123,7 @@ def test_multi_format_uses_one_ocr_pass():
     assert combined.headers["content-type"].startswith("application/json")
     body = combined.json()
     assert body["service"] == "rapidocr-id"
-    assert body["version"] == "1.5.1"
+    assert body["version"] == SERVICE_VERSION
     assert body["page_count"] == 2
     assert body["elapse"] == 0.5
     assert set(body["outputs"]) == {"json", "markdown", "html"}

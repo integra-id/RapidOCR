@@ -26,6 +26,7 @@ Yang dibersihkan dari hasil OCR:
 - Gelar di baris berikutnya, misalnya `S.Pd.I`, digabung ke `nama`.
 - Label dari foto HP yang salah satu-dua huruf tetap dikenali, misalnya `Namá`, `Tempai/TgiLahir`, `Tempot/TgtLahr`, `Jens Kelamin`, `Ke/Desa`, `KeiDesa`, `Kacamatan`, `BerlakuHingga`, `Slatus Perkawinan`, dan `GolDarah`. Nilai di baris berikutnya tetap diambil, termasuk bila diawali titik dua.
 - `LAKILAKI` menjadi `LAKI-LAKI`. Tanggal lahir yang memakai titik (`PEMALANG.08-09-1978`) diperlakukan seperti koma.
+- `gol_darah` yang kosong diisi `-` bila label Gol. Darah ada tanpa nilai A/B/AB/O (boleh `+/-`), atau bila NIK dan jenis kelamin sudah terbaca.
 - `DESAPETANJUNGAN` dan `CIKARANGSELATAN` diberi spasi bila awalan atau akhiran tempatnya dikenal (`DESA`, `SELATAN`, dan sejenisnya).
 - Tanggal terbit diambil dari tanggal paling bawah, bukan dari baris tempat/tanggal lahir.
 
