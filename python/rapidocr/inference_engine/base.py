@@ -5,7 +5,7 @@ import abc
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 from omegaconf import OmegaConf
@@ -92,6 +92,26 @@ class InferSession(abc.ABC):
     @abc.abstractmethod
     def __call__(self, input_content: np.ndarray) -> np.ndarray:
         pass
+
+    def infer_argmax(self, input_content: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Return ``(argmax, max)`` along the *last* axis of the model output.
+
+        Used by the text recognizer (CTC decode), whose logits have shape
+        ``(batch, time, vocab)``: reducing on-device before the CPU copy avoids a
+        large device-to-host transfer. Subclasses running on an accelerator (e.g.
+        torch/CUDA) should override this to perform the reduction on-device.
+
+        Raises:
+            ValueError: if the model output has fewer than 2 dimensions.
+        """
+        preds = self(input_content)
+        if preds.ndim < 2:
+            raise ValueError(
+                f"infer_argmax expects an output with at least 2 dimensions, "
+                f"got {preds.ndim} (shape={preds.shape}). It is intended for rec "
+                "logits of shape (batch, time, vocab)."
+            )
+        return preds.argmax(axis=-1), preds.max(axis=-1)
 
     @staticmethod
     def _verify_model(model_path: Union[str, Path, None]):

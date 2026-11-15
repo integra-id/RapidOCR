@@ -4,7 +4,7 @@
 import copy
 import math
 from enum import Enum
-from typing import List, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -28,6 +28,7 @@ class CalRecBoxes:
         dt_boxes: np.ndarray,
         rec_res: TextRecOutput,
         return_single_char_box: bool = False,
+        rotated_180: Optional[Sequence[bool]] = None,
     ) -> TextRecOutput:
         word_results = []
         for idx, (img, box) in enumerate(zip(imgs, dt_boxes)):
@@ -43,6 +44,10 @@ class CalRecBoxes:
                 return_single_char_box,
             )
             word_box_list = self.adjust_box_overlap(copy.deepcopy(word_box_list))
+            if rotated_180 is not None and rotated_180[idx]:
+                # The text was recognized on the crop after the classifier turned
+                # it by 180 degrees, so map the boxes back onto the unrotated crop.
+                word_box_list = self.rotate_boxes_180(word_box_list, w, h)
             direction = self.get_box_direction(box)
             word_box_list = self.reverse_rotate_crop_image(
                 copy.deepcopy(box), word_box_list, direction
@@ -53,6 +58,12 @@ class CalRecBoxes:
 
         rec_res.word_results = tuple(word_results)
         return rec_res
+
+    @staticmethod
+    def rotate_boxes_180(
+        word_box_list: List[List[List[float]]], w: int, h: int
+    ) -> List[List[List[float]]]:
+        return [[[w - x, h - y] for x, y in box] for box in word_box_list]
 
     @staticmethod
     def get_box_direction(box: np.ndarray) -> Direction:
@@ -96,14 +107,24 @@ class CalRecBoxes:
 
         is_all_en_num = all(v is WordType.EN_NUM for v in word_info.word_types)
 
-        line_cols, char_widths, word_contents = [], [], []
-        for word, word_col in zip(word_info.words, word_info.word_cols):
+        # A WordInfo built without char_confs gives every word the line's score.
+        char_confs_list = word_info.char_confs or [
+            [np.mean(word_info.confs).round(5).tolist()] * len(word)
+            for word in word_info.words
+        ]
+
+        line_cols, char_widths, word_contents, word_confs = [], [], [], []
+        for word, word_col, char_confs in zip(
+            word_info.words, word_info.word_cols, char_confs_list
+        ):
             if is_all_en_num and not return_single_char_box:
                 line_cols.append(word_col)
                 word_contents.append("".join(word))
+                word_confs.append(np.mean(char_confs).round(5).tolist())
             else:
                 line_cols.extend(word_col)
                 word_contents.extend(word)
+                word_confs.extend(char_confs)
 
             if len(word_col) == 1:
                 continue
@@ -123,7 +144,7 @@ class CalRecBoxes:
             word_boxes = self.calc_box(
                 line_cols, avg_char_width, avg_col_width, bbox_points
             )
-        return word_contents, word_boxes, word_info.confs
+        return word_contents, word_boxes, word_confs
 
     def calc_en_num_box(
         self,
