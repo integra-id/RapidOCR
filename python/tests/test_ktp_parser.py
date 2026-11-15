@@ -1,5 +1,9 @@
 # -*- encoding: utf-8 -*-
+import json
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from rapidocr import parse_ktp as exported_parse_ktp
 from rapidocr.postprocess import KTP_FIELDS, parse_ktp
@@ -260,3 +264,193 @@ def test_empty_input_returns_null_fields():
     parsed = parse_ktp([])
 
     assert parsed == {key: None for key in KTP_FIELDS}
+
+
+# Live service OCR text from the four previously tested cards (no images).
+# Fixtures are under tests/fixtures/ktp/.
+
+_KTP_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "ktp"
+
+
+def _fixture_txts(name: str) -> list[str]:
+    payload = json.loads((_KTP_FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
+    return list(payload["txts"])
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        (
+            "ebta_sleman",
+            {
+                "nik": "3403081205820001",
+                "nama": "EBTA SETIAWAN, S.T",
+                "tempat_tgl_lahir": "GUNUNGKIDUL, 12-05-1982",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": None,
+                "alamat": "NGANGKRIK",
+                "rt_rw": "001/014",
+                "kel_desa": "TRIHARJO",
+                "kecamatan": "SLEMAN",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "KARYAWAN SWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "DAERAH ISTIMEWA YOGYAKARTA",
+                "kabupaten_kota": "SLEMAN",
+                "issued_place": "SLEMAN",
+                "issued_date": "14-06-2021",
+            },
+        ),
+        (
+            "garut",
+            {
+                "nik": "3205192301880001",
+                "nama": "YOGI IRFAN ROSYADI, S.Pd.I",
+                "tempat_tgl_lahir": "GARUT, 23-01-1988",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": None,
+                "alamat": "KP. CIKANCUNG",
+                "rt_rw": "001/003",
+                "kel_desa": "MARGALAKSANA",
+                "kecamatan": "CILAWU",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "WIRASWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "JAWA BARAT",
+                "kabupaten_kota": "GARUT",
+                "issued_place": "GARUT",
+                "issued_date": "17-02-2020",
+            },
+        ),
+        (
+            "pemalang",
+            {
+                "nik": "3327101112890061",
+                "nama": "RISWANDI",
+                "tempat_tgl_lahir": "PEMALANG, 11-12-1989",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "-",
+                "alamat": "DESA PETANJUNGAN",
+                "rt_rw": "017/002",
+                "kel_desa": "PETANJUNGAN",
+                "kecamatan": "PETARUKAN",
+                "agama": "ISLAM",
+                "status_perkawinan": "BELUM KAWIN",
+                "pekerjaan": "WIRASWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "JAWA TENGAH",
+                "kabupaten_kota": "PEMALANG",
+                "issued_place": "PEMALANG",
+                "issued_date": "13-11-2018",
+            },
+        ),
+        (
+            "bekasi",
+            {
+                "nik": "3216190809780007",
+                "nama": "EKO BUDIONO BIN SUNARDI",
+                "tempat_tgl_lahir": "PEMALANG, 08-09-1978",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": None,
+                "kel_desa": "SUKARESMI",
+                "kecamatan": "CIKARANG SELATAN",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "WIRASWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "08-09-2017",
+                "provinsi": "JAWA BARAT",
+                "kabupaten_kota": "BEKASI",
+                "issued_place": "BEKASI",
+                "issued_date": "25-09-2012",
+            },
+        ),
+    ],
+)
+def test_live_ocr_fixtures(name, expected):
+    parsed = parse_ktp(_fixture_txts(name))
+
+    for key, value in expected.items():
+        assert parsed[key] == value, key
+
+
+def test_blood_type_rejects_non_abo_values():
+    parsed = parse_ktp(
+        [
+            "NIK",
+            "3403081205820001",
+            "Nama",
+            ":BUDI SANTOSO",
+            "Gol, Darah",
+            "SUKAMAJU",
+            "Alamat",
+            "RT/RW",
+            "001/001",
+        ]
+    )
+
+    assert parsed["gol_darah"] is None
+    assert parsed["alamat"] == "SUKAMAJU"
+    assert parsed["nama"] == "BUDI SANTOSO"
+
+
+def test_mangled_nama_label_does_not_become_the_name():
+    parsed = parse_ktp(
+        [
+            "NIK",
+            "3216010809780001",
+            "Naa",
+            "ANDI WIBOWO",
+        ]
+    )
+
+    assert parsed["nama"] == "ANDI WIBOWO"
+
+
+def test_ttl_stump_label_accepts_dot_separator():
+    parsed = parse_ktp(
+        [
+            "NIK",
+            "3216010809780001",
+            "Nama",
+            ":ANDI WIBOWO",
+            "Temanr",
+            "PEMALANG.08-09-1978",
+        ]
+    )
+
+    assert parsed["nama"] == "ANDI WIBOWO"
+    assert parsed["tempat_tgl_lahir"] == "PEMALANG, 08-09-1978"
+
+
+def test_agama_and_pekerjaan_are_normalized_from_catalog():
+    parsed = parse_ktp(
+        [
+            "Agama",
+            "ISA",
+            "Pekerjaan",
+            "KARYAWANSWASTA",
+        ]
+    )
+
+    assert parsed["agama"] == "ISLAM"
+    assert parsed["pekerjaan"] == "KARYAWAN SWASTA"
+
+
+def test_alamat_keeps_desa_prefix_and_corrects_trailing_place():
+    parsed = parse_ktp(
+        [
+            "Alamat",
+            ":DESA PETANLUNGAN",
+            "KelDesa",
+            "PETANUNGAN",
+        ]
+    )
+
+    assert parsed["alamat"] == "DESA PETANJUNGAN"
+    assert parsed["kel_desa"] == "PETANJUNGAN"

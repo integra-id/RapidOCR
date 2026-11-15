@@ -13,7 +13,16 @@ import re
 import unicodedata
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from .ktp_lexicon import NAME_LEXICON, PLACE_PREFIXES, PLACE_SUFFIXES
+from .ktp_lexicon import (
+    AGAMA_CANON,
+    GOL_DARAH_CANON,
+    NAME_LEXICON,
+    PEKERJAAN_ALIAS,
+    PEKERJAAN_CANON,
+    PLACE_GAZETTEER,
+    PLACE_PREFIXES,
+    PLACE_SUFFIXES,
+)
 
 KTP_FIELDS = (
     "nik",
@@ -191,6 +200,7 @@ def parse_ktp(
         index += consumed if consumed else 1
 
     _recover_nama(fields, lines, used)
+    _recover_alamat(fields, lines, used)
     _assign_issued(fields, lines, used)
     return fields
 
@@ -323,7 +333,9 @@ def _levenshtein(left: str, right: str) -> int:
     return previous[-1]
 
 
-def _closest_field(compact: str) -> Optional[tuple[str, int]]:
+def _closest_field(
+    compact: str, *, loose: bool = False
+) -> Optional[tuple[str, int]]:
     if len(compact) < 3:
         return None
 
@@ -334,6 +346,8 @@ def _closest_field(compact: str) -> Optional[tuple[str, int]]:
     best: Optional[tuple[int, int, str]] = None
     for field, canon in _CANON_COMPACT:
         limit = _edit_limit(len(canon))
+        if loose and 3 <= len(canon) <= 6:
+            limit = max(limit, 1)
         if abs(len(compact) - len(canon)) > limit:
             continue
         distance = _levenshtein(compact, canon)
@@ -345,6 +359,14 @@ def _closest_field(compact: str) -> Optional[tuple[str, int]]:
     if best is None:
         return None
     return best[2], best[0]
+
+
+def _is_label_typo(text: str) -> bool:
+    """True when a short line is a misspelled field label rather than a value."""
+    compact = _compact(text)
+    if not (3 <= len(compact) <= 8):
+        return False
+    return _closest_field(compact, loose=True) is not None
 
 
 def _normalize_spacing(text: str) -> str:
@@ -480,11 +502,135 @@ def _clean_gender(value: str) -> Optional[str]:
 
 def _clean_blood(value: str) -> Optional[str]:
     text = _normalize_spacing(value).upper().replace(" ", "")
-    if text in {"-", "--", "—"}:
-        return "-"
-    if text in {"0", "O"}:
-        return "O"
-    return text or None
+    if text in {"--", "—"}:
+        text = "-"
+    if text == "0":
+        text = "O"
+    if text in GOL_DARAH_CANON:
+        return text
+    return None
+
+
+def _is_subsequence(short: str, long: str) -> bool:
+    index = 0
+    for char in long:
+        if index < len(short) and char == short[index]:
+            index += 1
+    return index == len(short)
+
+
+def _match_catalog(
+    value: str,
+    names: Sequence[str],
+    aliases: Optional[Mapping[str, str]] = None,
+    *,
+    loose: bool = False,
+) -> Optional[str]:
+    """Return the catalog spelling closest to ``value``, or None."""
+    query = re.sub(r"[^A-Z]", "", _normalize_spacing(value).upper())
+    if len(query) < 3:
+        return None
+    by_compact: dict[str, str] = {}
+    for name in names:
+        compact = re.sub(r"[^A-Z]", "", name.upper())
+        if compact:
+            by_compact[compact] = name.upper()
+    if aliases:
+        for alias, official in aliases.items():
+            by_compact[re.sub(r"[^A-Z]", "", alias.upper())] = official.upper()
+
+    if query in by_compact:
+        return by_compact[query]
+
+    best: list[tuple[int, int, str]] = []
+    for compact, name in by_compact.items():
+        limit = 1 if max(len(query), len(compact)) <= 8 else 2
+        if loose:
+            limit = max(limit, 2)
+        if abs(len(query) - len(compact)) > limit:
+            continue
+        distance = _levenshtein(query, compact)
+        if distance <= limit:
+            best.append((distance, len(compact), name))
+    if best:
+        best.sort()
+        top = [item for item in best if item[0] == best[0][0]]
+        if len({item[2] for item in top}) == 1:
+            return best[0][2]
+
+    # Prefix / stump: "ISA" -> ISLAM, when it uniquely prefixes one entry.
+    if len(query) >= 3:
+        prefixed = [
+            name
+            for compact, name in by_compact.items()
+            if compact.startswith(query) or query.startswith(compact)
+        ]
+        unique = set(prefixed)
+        if len(unique) == 1:
+            return next(iter(unique))
+
+    # Dropped letters (often vowels): "TRHRO" is a subsequence of "TRIHARJO".
+    if len(query) >= 5:
+        dropped: list[tuple[int, int, str]] = []
+        for compact, name in by_compact.items():
+            gap = len(compact) - len(query)
+            if 1 <= gap <= 3 and _is_subsequence(query, compact):
+                dropped.append((gap, len(compact), name))
+        if dropped:
+            dropped.sort()
+            if len(dropped) == 1 or dropped[0][0] < dropped[1][0]:
+                return dropped[0][2]
+    return None
+
+
+_ADDRESS_PREFIXES = PLACE_PREFIXES + (
+    "KP",
+    "JL",
+    "JLN",
+    "GG",
+    "DS",
+    "DK",
+    "DSN",
+    "LRG",
+    "PERUM",
+    "KOMP",
+)
+
+
+def _correct_place_name(value: str, *, whole: bool = True) -> str:
+    text = _expand_glued_place(value)
+    if not text:
+        return text
+    parts = text.split()
+    for index, prefix in enumerate(parts):
+        bare = prefix.rstrip(".")
+        if bare in _ADDRESS_PREFIXES and index + 1 < len(parts):
+            tail = " ".join(parts[index + 1 :])
+            fixed = _match_catalog(tail, PLACE_GAZETTEER)
+            if fixed:
+                return " ".join(parts[: index + 1] + [fixed])
+            return text
+    if not whole:
+        return text
+    return _match_catalog(text, PLACE_GAZETTEER) or text
+
+
+def _clean_agama(value: str) -> Optional[str]:
+    text = _normalize_spacing(value).upper()
+    if not text:
+        return None
+    # Official catalog uses BUDDHA; "BUDHA" is a frequent OCR/spelling variant.
+    aliases = {"BUDHA": "BUDDHA"}
+    matched = _match_catalog(text, AGAMA_CANON, aliases, loose=True)
+    return matched or text
+
+
+def _clean_pekerjaan(value: str) -> Optional[str]:
+    text = _normalize_spacing(value).upper()
+    if not text:
+        return None
+    matched = _match_catalog(text, PEKERJAAN_CANON, PEKERJAAN_ALIAS)
+    return matched or text
 
 
 def _clean_field(key: str, value: str) -> Optional[str]:
@@ -498,7 +644,17 @@ def _clean_field(key: str, value: str) -> Optional[str]:
         return _clean_blood(value)
     if key == "tempat_tgl_lahir":
         return _clean_ttl(value)
-    if key in {"provinsi", "kabupaten_kota", "alamat", "kel_desa", "kecamatan"}:
+    if key == "agama":
+        return _clean_agama(value)
+    if key == "pekerjaan":
+        return _clean_pekerjaan(value)
+    if key in {"kel_desa", "kecamatan"}:
+        text = _correct_place_name(value, whole=True)
+        return text or None
+    if key == "alamat":
+        text = _correct_place_name(value, whole=False)
+        return text or None
+    if key in {"provinsi", "kabupaten_kota"}:
         text = _expand_glued_place(value)
         return text or None
 
@@ -536,6 +692,13 @@ def _exact_label_segments(line: str) -> list[tuple[str, str]]:
         )
         if field is None:
             continue
+        if (
+            field == "kel_desa"
+            and _compact(match.group()) == "desa"
+            and value
+        ):
+            # "DESA PETANJUNGAN" is an address line, not a Kel/Desa label.
+            return []
         segments.append((field, value))
     return segments
 
@@ -545,10 +708,14 @@ def _fuzzy_leading_label(line: str) -> Optional[tuple[str, str]]:
         label, value = re.split(r"[:：]", line, maxsplit=1)
         if _DATE_RE.search(label):
             return None
-        found = _closest_field(_compact(label))
+        found = _closest_field(_compact(label), loose=True)
         if found is None:
             return None
-        return found[0], _strip_leading_colon(value).strip()
+        field, _distance = found
+        remainder = _strip_leading_colon(value).strip()
+        if field == "kel_desa" and _compact(label) == "desa" and remainder:
+            return None
+        return field, remainder
 
     tokens = line.split()
     best: Optional[tuple[int, int, str, str]] = None
@@ -556,11 +723,15 @@ def _fuzzy_leading_label(line: str) -> Optional[tuple[str, str]]:
         chunk = " ".join(tokens[:end])
         if _DATE_RE.search(chunk):
             break
-        found = _closest_field(_compact(chunk))
+        loose = end == len(tokens) and 3 <= len(_compact(chunk)) <= 6
+        found = _closest_field(_compact(chunk), loose=loose)
         if found is None:
             continue
         field, distance = found
-        candidate = (distance, end, field, " ".join(tokens[end:]).strip())
+        remainder = " ".join(tokens[end:]).strip()
+        if field == "kel_desa" and _compact(chunk) == "desa" and remainder:
+            continue
+        candidate = (distance, end, field, remainder)
         if best is None or (candidate[0], candidate[1]) < (best[0], best[1]):
             best = candidate
     if best is None:
@@ -590,10 +761,26 @@ def _merge_gelar(name: str, gelar: str) -> str:
     return f"{name.rstrip(' ,')}, {gelar.strip()}"
 
 
-def _assign(fields: dict[str, Optional[str]], key: str, value: str) -> None:
+# Fields whose values come from a small printed vocabulary. A following line
+# that does not clean to a catalog entry is left unused so another field can
+# claim it (for example an address sitting under an empty Gol. Darah row).
+_CLOSED_FIELDS = frozenset(
+    {
+        "gol_darah",
+        "agama",
+        "jenis_kelamin",
+        "status_perkawinan",
+        "kewarganegaraan",
+    }
+)
+
+
+def _assign(fields: dict[str, Optional[str]], key: str, value: str) -> bool:
     cleaned = _clean_field(key, value)
     if cleaned:
         fields[key] = cleaned
+        return True
+    return False
 
 
 def _take_nik(fields: dict[str, Optional[str]], lines: Sequence[str]) -> None:
@@ -602,6 +789,39 @@ def _take_nik(fields: dict[str, Optional[str]], lines: Sequence[str]) -> None:
         if nik:
             fields["nik"] = nik
             return
+
+
+def _is_ttl_stump(line: str) -> bool:
+    """A short 'tem…' token that is not itself a known place name."""
+    compact = _compact(line)
+    if not compact.startswith("tem") or not (4 <= len(compact) <= 12):
+        return False
+    place = re.sub(r"[^A-Z]", "", _normalize_spacing(line).upper())
+    known = {re.sub(r"[^A-Z]", "", name.upper()) for name in PLACE_GAZETTEER}
+    return place not in known
+
+
+def _line_place_date(line: str) -> Optional[str]:
+    return _clean_ttl(_strip_leading_colon(line)) if _DATE_RE.search(line or "") else None
+
+
+def _consume_ttl_stump(
+    fields: dict[str, Optional[str]],
+    lines: Sequence[str],
+    index: int,
+    used: set[int],
+) -> int:
+    """If this line is a mangled Tempat/Tgl Lahir label, take the next date line."""
+    if not _is_ttl_stump(lines[index]):
+        return 0
+    if index + 1 >= len(lines) or _is_structural(lines[index + 1]):
+        return 0
+    if not _line_place_date(lines[index + 1]):
+        return 0
+    if _assign(fields, "tempat_tgl_lahir", lines[index + 1]):
+        used.update((index, index + 1))
+        return 2
+    return 0
 
 
 def _consume_at(
@@ -624,7 +844,7 @@ def _consume_at(
 
     segments = _split_labels(line)
     if not segments:
-        return 0
+        return _consume_ttl_stump(fields, lines, index, used)
 
     if len(segments) == 1 and not segments[0][1]:
         key = segments[0][0]
@@ -640,7 +860,10 @@ def _consume_at(
         ):
             value = _merge_gelar(value, lines[index + 2])
             step = 3
-        _assign(fields, key, value)
+        accepted = _assign(fields, key, value)
+        if not accepted and key in _CLOSED_FIELDS:
+            used.add(index)
+            return 1
         used.update(range(index, index + step))
         return step
 
@@ -678,10 +901,12 @@ def _looks_like_name_line(line: str) -> bool:
     text = _strip_leading_colon(_squash_space(line))
     if not text or _DATE_RE.search(text) or _match_header(text):
         return False
-    if _closest_field(_compact(text)) is not None:
+    if _is_label_typo(text) or _closest_field(_compact(text), loose=True) is not None:
         return False
     compact = _compact(text)
     if compact in {_compact(phrase) for phrase in _NOT_PLACE}:
+        return False
+    if _is_ttl_stump(text):
         return False
     return len(re.sub(r"[^a-z]", "", _fold(text))) >= 3
 
@@ -704,6 +929,60 @@ def _recover_nama(
             continue
         _assign(fields, "nama", lines[index])
         if fields["nama"]:
+            used.add(index)
+            return
+
+
+def _looks_like_address_line(line: str) -> bool:
+    text = _strip_leading_colon(_squash_space(line))
+    if not text or _DATE_RE.search(text) or _match_header(text):
+        return False
+    if _is_label_typo(text):
+        return False
+    compact = _compact(text)
+    if compact in {_compact(phrase) for phrase in _NOT_PLACE}:
+        return False
+    if _match_catalog(text, AGAMA_CANON) or _match_catalog(text, PEKERJAAN_CANON, PEKERJAAN_ALIAS):
+        return False
+    return len(re.sub(r"[^a-z]", "", _fold(text))) >= 3
+
+
+def _is_issue_place_line(lines: Sequence[str], index: int) -> bool:
+    """True when this leftover place is the issue block (followed by a lone date)."""
+    if index + 1 >= len(lines):
+        return False
+    nxt = _normalize_spacing(lines[index + 1])
+    return _LONE_DATE_RE.match(nxt) is not None
+
+
+def _recover_alamat(
+    fields: dict[str, Optional[str]], lines: Sequence[str], used: set[int]
+) -> None:
+    """Fill an empty alamat from a leftover line next to the Alamat label."""
+    if fields["alamat"]:
+        return
+
+    label_at: Optional[int] = None
+    for index, line in enumerate(lines):
+        segments = _split_labels(line)
+        if len(segments) == 1 and segments[0][0] == "alamat":
+            label_at = index
+            break
+    if label_at is None:
+        return
+
+    candidates: list[int] = []
+    if label_at - 1 >= 0 and (label_at - 1) not in used:
+        candidates.append(label_at - 1)
+    if label_at + 1 < len(lines) and (label_at + 1) not in used:
+        candidates.append(label_at + 1)
+
+    for index in candidates:
+        if _is_issue_place_line(lines, index):
+            continue
+        if not _looks_like_address_line(lines[index]):
+            continue
+        if _assign(fields, "alamat", lines[index]):
             used.add(index)
             return
 
