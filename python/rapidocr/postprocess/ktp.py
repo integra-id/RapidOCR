@@ -26,11 +26,17 @@ from .ktp_lexicon import (
     PLACE_SUFFIXES,
     STATUS_KAWIN_CANON,
 )
+from .ktp_titles import format_gelar, format_nama, split_titles
+from . import ktp_wilayah
 
 KTP_FIELDS = (
     "nik",
     "nama",
+    "nama_tanpa_gelar",
+    "gelar",
     "tempat_tgl_lahir",
+    "tempat_lahir",
+    "tgl_lahir",
     "jenis_kelamin",
     "gol_darah",
     "alamat",
@@ -76,8 +82,8 @@ _GELAR = r"(?:(?:dr|drs|ir|prof|hj|h)\.\s*)?(?:[A-Za-z]{1,3}\.)+[A-Za-z]{1,4}\.?
 _GELAR_LINE_RE = re.compile(rf"(?i)^(?:{_GELAR})$")
 _GELAR_TAIL_RE = re.compile(rf"(?i)(?:,|\s)\s*({_GELAR})\s*$")
 _ADDR_ABBREV_RE = re.compile(r"(?i)\b(KP|JL|JLN|GG|DS|DK|DSN|LRG|PERUM|KOMP)\.(?=\S)")
-_DATE_RE = re.compile(r"\d{2}[-/.]\d{2}[-/.]\d{4}")
-_LONE_DATE_RE = re.compile(r"^(\d{2}[-/.]\d{2}[-/.]\d{4})$")
+_DATE_RE = re.compile(r"\d{2}[-/. ]\d{2}[-/. ]\d{4}")
+_LONE_DATE_RE = re.compile(r"^(\d{2}[-/. ]\d{2}[-/. ]\d{4})$")
 _PLACE_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z .'-]{1,40}$")
 _NOT_PLACE = {
     "SEUMUR HIDUP",
@@ -105,11 +111,23 @@ _LABEL_SPELLINGS = (
     ("nama", ("nama", "namá")),
     (
         "tempat_tgl_lahir",
-        ("tempat/tgl lahir", "ttl", "tempai/tgilahir", "tempot/tgtlahr"),
+        (
+            "tempat/tgl lahir",
+            "ttl",
+            "tempai/tgilahir",
+            "tempot/tgtlahr",
+            "tempat/tgilahir",
+            "tempat/tgllabir",
+            "tgilahir",
+            "tgllabir",
+        ),
     ),
-    ("jenis_kelamin", ("jenis kelamin", "jens kelamin")),
+    (
+        "jenis_kelamin",
+        ("jenis kelamin", "jens kelamin", "jonis lelamín", "jonis kelamin", "jenis lelamín"),
+    ),
     ("gol_darah", ("gol darah", "gol. darah", "golongan darah", "goldarah")),
-    ("alamat", ("alamat",)),
+    ("alamat", ("alamat", "alarnal", "alarnat")),
     ("rt_rw", ("rt/rw", "rt rw", "rtrw")),
     (
         "kel_desa",
@@ -118,9 +136,15 @@ _LABEL_SPELLINGS = (
     ("kecamatan", ("kecamatan", "kacamatan")),
     ("agama", ("agama",)),
     ("status_perkawinan", ("status perkawinan", "slatus perkawinan")),
-    ("pekerjaan", ("pekerjaan",)),
-    ("kewarganegaraan", ("kewarganegaraan",)),
-    ("berlaku_hingga", ("berlaku hingga", "berlaku sampai", "berlakuhingga")),
+    ("pekerjaan", ("pekerjaan", "kerjaan", "pkerjaan")),
+    (
+        "kewarganegaraan",
+        ("kewarganegaraan", "vganegaraan", "warganegaraan", "ganegaraan"),
+    ),
+    (
+        "berlaku_hingga",
+        ("berlaku hingga", "berlaku sampai", "berlakuhingga", "hingga"),
+    ),
 )
 # Short labels stay exact. Longer ones tolerate a few OCR edits.
 _CANON_COMPACT = (
@@ -212,8 +236,13 @@ def parse_ktp(
     _recover_alamat(fields, lines, used)
     _recover_kabupaten(fields, lines, used)
     _recover_pekerjaan(fields, lines, used)
+    _recover_ttl(fields, lines, used)
+    _recover_unlabeled(fields, lines, used)
     _assign_issued(fields, lines, used)
+    _apply_nik_demographics(fields)
+    _apply_nik_regions(fields)
     _default_gol_darah(fields, lines)
+    _finalize_derived(fields)
     return fields
 
 
@@ -373,6 +402,17 @@ def _closest_field(
         rank = (distance, -len(canon), field)
         if best is None or rank < best:
             best = rank
+    if best is None and len(compact) >= 8:
+        for field, canon in _CANON_COMPACT:
+            if len(canon) < len(compact):
+                continue
+            suffix = canon[-len(compact) :]
+            distance = _levenshtein(compact, suffix)
+            if distance > _edit_limit(len(compact)):
+                continue
+            rank = (distance, -len(canon), field)
+            if best is None or rank < best:
+                best = rank
     if best is None:
         return None
     return best[2], best[0]
@@ -467,13 +507,24 @@ def _segment_name_text(text: str) -> str:
 
 
 def _peel_gelar(value: str) -> tuple[str, Optional[str]]:
-    match = _GELAR_TAIL_RE.search(value)
-    if match is None:
-        return value, None
-    return value[: match.start()].strip(" ,"), match.group(1).strip()
+    bare, prefixes, suffixes = split_titles(value)
+    titles = prefixes + suffixes
+    if not titles:
+        # Keep the legacy single-suffix path for unusual dotted gelar forms.
+        match = _GELAR_TAIL_RE.search(value)
+        if match is None:
+            return value, None
+        return value[: match.start()].strip(" ,"), match.group(1).strip()
+    gelar = format_gelar(prefixes, suffixes)
+    # Reconstruct a name-shaped string so callers can merge a following line.
+    return format_nama(bare, prefixes, []), gelar
 
 
 def _canon_gelar(gelar: str) -> str:
+    bare, prefixes, suffixes = split_titles(gelar)
+    formatted = format_gelar(prefixes, suffixes)
+    if formatted:
+        return formatted
     parts = [part for part in gelar.split(".") if part]
     titled = [
         part[0].upper() + part[1:].lower() if part.isalpha() else part for part in parts
@@ -485,13 +536,11 @@ def _clean_nama(value: str) -> Optional[str]:
     text = _normalize_spacing(value)
     if not text:
         return None
-    body, gelar = _peel_gelar(text)
-    body = _segment_name_text(body.strip(" ,"))
+    bare, prefixes, suffixes = split_titles(text)
+    body = _segment_name_text((bare or text).strip(" ,"))
     if not body:
         return None
-    if gelar:
-        return f"{body}, {_canon_gelar(gelar)}"
-    return body
+    return format_nama(body, prefixes, suffixes) or body
 
 
 def _normalize_dotted_date(text: str) -> str:
@@ -501,7 +550,7 @@ def _normalize_dotted_date(text: str) -> str:
 
 def _parse_place_date(text: str) -> Optional[tuple[str, str]]:
     text = _normalize_dotted_date(text.strip())
-    match = re.match(r"^(.+?)[,.]\s*(\d{2}[-/.]\d{2}[-/.]\d{4})$", text)
+    match = re.match(r"^(.+?)[,.\s]+(\d{2}[-/. ]\d{2}[-/. ]\d{4})$", text)
     if match is None:
         return None
     place = match.group(1).strip(" ,.")
@@ -540,11 +589,15 @@ _BLOOD_RE = re.compile(r"^(AB|A|B|O)([+-])?$")
 
 def _clean_blood(value: str) -> Optional[str]:
     text = _normalize_spacing(value).upper().replace(" ", "")
+    text = re.sub(r"^[^A-Z0-9+-]+", "", text)
+    text = re.sub(r"[^A-Z0-9+-]+$", "", text)
     if text in {"--", "—", "–"}:
         return "-"
     if text == "-":
         return "-"
     if text.startswith("0"):
+        text = "O" + text[1:]
+    elif ".0" in f".{text}" and re.fullmatch(r"0[+-]?", text):
         text = "O" + text[1:]
     match = _BLOOD_RE.fullmatch(text)
     if match:
@@ -729,9 +782,15 @@ def _clean_field(key: str, value: str) -> Optional[str]:
         )
         text = _correct_place_name(text, whole=False)
         return text or None
-    if key in {"provinsi", "kabupaten_kota", "issued_place"}:
+    if key == "provinsi":
         text = _expand_glued_place(value)
-        matched = _match_catalog(text, KABUPATEN_KOTA_CANON, loose=True)
+        matched = ktp_wilayah.match_region(text, ktp_wilayah.province_names())
+        return matched or text or None
+    if key in {"kabupaten_kota", "issued_place"}:
+        text = _expand_glued_place(value)
+        matched = ktp_wilayah.match_region(text, ktp_wilayah.regency_names())
+        if not matched:
+            matched = _match_catalog(text, KABUPATEN_KOTA_CANON, loose=True)
         return matched or text or None
 
     text = _normalize_spacing(value).upper()
@@ -987,7 +1046,22 @@ def _consume_at(
             return 1
         value = lines[index + 1]
         step = 2
+        # Two-column OCR can park the birth place between the Nama label
+        # and the actual name: "Nama" / "SLEMAN" / "ENDAR ..., S.T.".
         if (
+            key == "nama"
+            and _is_place_value(value)
+            and index + 2 < len(lines)
+            and _looks_like_name_line(lines[index + 2])
+        ):
+            if not fields.get("tempat_tgl_lahir"):
+                _assign(fields, "tempat_tgl_lahir", value)
+            value = lines[index + 2]
+            step = 3
+            if index + 3 < len(lines) and _is_gelar_line(lines[index + 3]):
+                value = _merge_gelar(value, lines[index + 3])
+                step = 4
+        elif (
             key == "nama"
             and index + 2 < len(lines)
             and _is_gelar_line(lines[index + 2])
@@ -1013,13 +1087,23 @@ def _consume_at(
             value = _merge_gelar(value, lines[index + 1])
             step = 2
         if value:
+            if (
+                key == "tempat_tgl_lahir"
+                and not _DATE_RE.search(value)
+                and index + 1 < len(lines)
+                and _LONE_DATE_RE.match(_normalize_spacing(lines[index + 1]))
+            ):
+                value = f"{value}, {lines[index + 1]}"
+                step = max(step, 2)
             _assign(fields, key, value)
     used.update(range(index, index + step))
     return step
 
 
 def _norm_date(value: str) -> str:
-    return _normalize_dotted_date(value).replace("/", "-")
+    text = _normalize_dotted_date(value)
+    text = re.sub(r"(\d{2})[ .](\d{2})[ .](\d{4})", r"\1-\2-\3", text)
+    return text.replace("/", "-")
 
 
 def _date_in(value: Optional[str]) -> Optional[str]:
@@ -1045,12 +1129,219 @@ def _looks_like_name_line(line: str) -> bool:
     return len(re.sub(r"[^a-z]", "", _fold(text))) >= 3
 
 
+def _is_place_value(value: str) -> bool:
+    """True when a line is an exact province or kabupaten/kota name.
+
+    Fuzzy matches are intentionally not used: a sample name such as
+    ``NAMA LENGKAP`` is only a few edits from ``MAJALENGKA``.
+    """
+    text = _expand_glued_place(_strip_leading_colon(_normalize_spacing(value)))
+    if not text:
+        return False
+    compact = _compact(text)
+    if len(compact) < 4:
+        return False
+    known = {_compact(name) for name in ktp_wilayah.regency_names()}
+    known.update(_compact(name) for name in ktp_wilayah.province_names())
+    known.update(_compact(name) for name in KABUPATEN_KOTA_CANON)
+    return compact in known
+
+
+def _is_valid_calendar_date(value: str) -> bool:
+    text = _norm_date(value)
+    match = re.fullmatch(r"(\d{2})-(\d{2})-(\d{4})", text)
+    if match is None:
+        return False
+    day, month, year = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    if year < 1900 or year > 2100 or not 1 <= month <= 12 or not 1 <= day <= 31:
+        return False
+    months = (31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    return day <= months[month - 1]
+
+
+def _nik_year(two_digit: int, reference: int = 2026) -> int:
+    year_2000 = 2000 + two_digit
+    year_1900 = 1900 + two_digit
+    age_2000 = reference - year_2000
+    age_1900 = reference - year_1900
+    ok_2000 = 0 <= age_2000 <= 120
+    ok_1900 = 0 <= age_1900 <= 120
+    if ok_1900 and not ok_2000:
+        return year_1900
+    if ok_2000 and not ok_1900:
+        return year_2000
+    if 16 <= age_1900 <= 120:
+        return year_1900
+    if ok_2000:
+        return year_2000
+    return year_1900
+
+
+def nik_demographics(nik: str) -> Optional[dict[str, str]]:
+    """Birth date and gender encoded in digits 7-12 of a NIK."""
+    if not re.fullmatch(r"\d{16}", nik or ""):
+        return None
+    day = int(nik[6:8])
+    month = int(nik[8:10])
+    year = _nik_year(int(nik[10:12]))
+    gender = "PEREMPUAN"
+    if day > 40:
+        day -= 40
+    else:
+        gender = "LAKI-LAKI"
+    date = f"{day:02d}-{month:02d}-{year:04d}"
+    if not _is_valid_calendar_date(date):
+        return None
+    return {"tgl_lahir": date, "jenis_kelamin": gender}
+
+
+def _split_ttl(value: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not value:
+        return None, None
+    pair = _parse_place_date(_normalize_dotted_date(value))
+    if pair is not None:
+        place, date = pair
+        return _expand_glued_place(place) or None, date
+    date = _date_in(value)
+    if date:
+        place = _DATE_RE.sub("", value).strip(" ,.-")
+        place = _expand_glued_place(place) if place else None
+        return place or None, date
+    text = _expand_glued_place(value)
+    return text or None, None
+
+
+def _recover_ttl(
+    fields: dict[str, Optional[str]], lines: Sequence[str], used: set[int]
+) -> None:
+    """Join a birth date that landed on the next line, then trust the NIK."""
+    current = fields.get("tempat_tgl_lahir")
+    place, date = _split_ttl(current)
+    if place and not date:
+        for index, line in enumerate(lines):
+            if index in used:
+                continue
+            text = _normalize_spacing(line)
+            if not _LONE_DATE_RE.match(text) and not _LONE_DATE_RE.match(
+                text.replace(" ", "-")
+            ):
+                continue
+            candidate = _norm_date(text)
+            if not _is_valid_calendar_date(candidate):
+                continue
+            date = candidate
+            used.add(index)
+            break
+        if date:
+            fields["tempat_tgl_lahir"] = f"{place}, {date}"
+            current = fields["tempat_tgl_lahir"]
+            place, date = _split_ttl(current)
+
+    if not current:
+        for index, line in enumerate(lines):
+            if index in used:
+                continue
+            pair = _parse_place_date(_normalize_dotted_date(_normalize_spacing(line)))
+            if pair is None:
+                continue
+            place, date = pair
+            if not place or not _is_valid_calendar_date(date):
+                continue
+            fields["tempat_tgl_lahir"] = f"{_expand_glued_place(place)}, {date}"
+            used.add(index)
+            current = fields["tempat_tgl_lahir"]
+            place, date = _split_ttl(current)
+            break
+
+    demo = nik_demographics(fields.get("nik") or "")
+    if demo and (not date or not _is_valid_calendar_date(date)):
+        date = demo["tgl_lahir"]
+        if place:
+            fields["tempat_tgl_lahir"] = f"{place}, {date}"
+
+
+def _recover_unlabeled(
+    fields: dict[str, Optional[str]], lines: Sequence[str], used: set[int]
+) -> None:
+    """Fill WNI / SEUMUR HIDUP when the label was chewed up."""
+    for index, line in enumerate(lines):
+        if index in used:
+            continue
+        compact = re.sub(r"[^A-Z]", "", _normalize_spacing(line).upper())
+        if compact in {"WNI", "WNA"} and not fields.get("kewarganegaraan"):
+            fields["kewarganegaraan"] = compact
+            used.add(index)
+            continue
+        if compact == "SEUMURHIDUP" and not fields.get("berlaku_hingga"):
+            fields["berlaku_hingga"] = "SEUMUR HIDUP"
+            used.add(index)
+
+
+def _apply_nik_demographics(fields: dict[str, Optional[str]]) -> None:
+    demo = nik_demographics(fields.get("nik") or "")
+    if not demo:
+        return
+    if not fields.get("jenis_kelamin"):
+        fields["jenis_kelamin"] = demo["jenis_kelamin"]
+    place, date = _split_ttl(fields.get("tempat_tgl_lahir"))
+    if place and (not date or not _is_valid_calendar_date(date)):
+        fields["tempat_tgl_lahir"] = f"{place}, {demo['tgl_lahir']}"
+
+
+def _region_is_weak(value: Optional[str], names: tuple[str, ...]) -> bool:
+    if not value:
+        return True
+    matched = ktp_wilayah.match_region(value, names)
+    return matched is None
+
+
+def _apply_nik_regions(fields: dict[str, Optional[str]]) -> None:
+    provinsi, kabupaten = ktp_wilayah.nik_region(fields.get("nik") or "")
+    if provinsi and _region_is_weak(fields.get("provinsi"), ktp_wilayah.province_names()):
+        fields["provinsi"] = provinsi
+    elif provinsi:
+        matched = ktp_wilayah.match_region(fields.get("provinsi") or "", ktp_wilayah.province_names())
+        if matched:
+            fields["provinsi"] = matched
+    if kabupaten and _region_is_weak(fields.get("kabupaten_kota"), ktp_wilayah.regency_names()):
+        fields["kabupaten_kota"] = kabupaten
+    elif kabupaten:
+        matched = ktp_wilayah.match_region(
+            fields.get("kabupaten_kota") or "", ktp_wilayah.regency_names()
+        )
+        if matched:
+            fields["kabupaten_kota"] = matched
+
+
+def _finalize_derived(fields: dict[str, Optional[str]]) -> None:
+    nama = fields.get("nama")
+    if nama:
+        bare, prefixes, suffixes = split_titles(nama)
+        # Segmentation already happened in _clean_nama; do not re-segment.
+        if bare:
+            fields["nama_tanpa_gelar"] = bare
+            fields["gelar"] = format_gelar(prefixes, suffixes)
+            fields["nama"] = format_nama(bare, prefixes, suffixes)
+    place, date = _split_ttl(fields.get("tempat_tgl_lahir"))
+    if place:
+        fields["tempat_lahir"] = place
+    if date:
+        fields["tgl_lahir"] = date
+        if place:
+            fields["tempat_tgl_lahir"] = f"{place}, {date}"
+    elif not fields.get("tgl_lahir"):
+        demo = nik_demographics(fields.get("nik") or "")
+        if demo:
+            fields["tgl_lahir"] = demo["tgl_lahir"]
+
+
 def _recover_nama(
     fields: dict[str, Optional[str]], lines: Sequence[str], used: set[int]
 ) -> None:
     """If the nama label was unreadable, take the name-like line after NIK."""
-    if fields["nama"]:
+    if fields["nama"] and not _is_place_value(fields["nama"]):
         return
+    displaced_place = fields["nama"] if _is_place_value(fields.get("nama") or "") else None
 
     start = 0
     for index, line in enumerate(lines):
@@ -1061,9 +1352,13 @@ def _recover_nama(
     for index in range(start, len(lines)):
         if index in used or not _looks_like_name_line(lines[index]):
             continue
-        _assign(fields, "nama", lines[index])
-        if fields["nama"]:
+        if displaced_place and _is_place_value(lines[index]):
+            continue
+        accepted = _assign(fields, "nama", lines[index])
+        if accepted and fields["nama"] and not _is_place_value(fields["nama"]):
             used.add(index)
+            if displaced_place and not fields.get("tempat_tgl_lahir"):
+                _assign(fields, "tempat_tgl_lahir", displaced_place)
             return
 
 
@@ -1214,14 +1509,22 @@ def _assign_issued(
         if date == birth:
             continue
         place = None
-        if index > 0:
-            previous = leftovers[index - 1].upper()
+        for previous in leftovers[index - 1 :: -1]:
+            token = previous.upper()
             if (
-                _PLACE_LINE_RE.fullmatch(previous)
-                and previous not in _NOT_PLACE
-                and _parse_place_date(previous) is None
+                not _PLACE_LINE_RE.fullmatch(token)
+                or token in _NOT_PLACE
+                or _parse_place_date(previous) is not None
             ):
-                place = previous
+                continue
+            matched = ktp_wilayah.match_region(token, ktp_wilayah.regency_names())
+            if not matched:
+                matched = _match_catalog(token, KABUPATEN_KOTA_CANON, loose=True)
+            if matched:
+                place = matched
+                break
+            if place is None and len(re.sub(r"[^A-Z]", "", token)) >= 5:
+                place = token
         candidates.append((place, date))
 
     if not candidates:

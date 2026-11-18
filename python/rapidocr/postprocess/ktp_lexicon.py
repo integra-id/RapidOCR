@@ -208,6 +208,34 @@ MAMUJU
 TANGERANG
 BANTEN
 CIDODOL
+AMBARKETAWANG
+GAMPING
+KALIMANJUNG
+CONDONGCATUR
+CATURTUNGGAL
+MAGUWOHARJO
+MLATI
+GODEAN
+MOYUDAN
+SEYEGAN
+MINGGIR
+TEMPEL
+TURI
+PAKEM
+CANGKRINGAN
+NGAGLIK
+NGEMPLAK
+BERBAH
+PRAMBANAN
+KALASAN
+DEPOK
+BALECATUR
+BANYURADEN
+NOGOTIRTO
+SIDOREJO
+NGESTIHARJO
+SENDANGADI
+SINDUHARJO
 """
 
 PLACE_GAZETTEER = tuple(
@@ -252,3 +280,64 @@ DIRECTION_TYPOS = {
     "UTATA": "UTARA",
     "BARAI": "BARAT",
 }
+
+
+# Academic, professional, and honorific titles that may be glued to a name.
+# Longer spellings are listed first so they win over a shorter overlap.
+GELAR_CANON = (
+    "S.Pd.I",
+    "S.Kom.",
+    "S.Sos.",
+    "S.Ag.",
+    "S.Pd.",
+    "S.H.",
+    "S.E.",
+    "S.T.",
+    "M.Kom.",
+    "M.Si.",
+    "M.T.",
+    "M.M.",
+    "A.Md.",
+    "Ph.D",
+    "MBA",
+    "Drs.",
+    "Dra.",
+    "Prof.",
+    "Ir.",
+    "Dr.",
+    "dr.",
+    "Hj.",
+    "H.",
+)
+
+# Compact form (letters only) -> canonical spelling.
+GELAR_COMPACT = {
+    "SPDI": "S.Pd.I",
+    "SPDI.": "S.Pd.I",
+    "SKOM": "S.Kom.",
+    "SSOS": "S.Sos.",
+    "SAG": "S.Ag.",
+    "SPD": "S.Pd.",
+    "SH": "S.H.",
+    "SE": "S.E.",
+    "ST": "S.T.",
+    "MKOM": "M.Kom.",
+    "MSI": "M.Si.",
+    "MT": "M.T.",
+    "MM": "M.M.",
+    "AMD": "A.Md.",
+    "AMD.": "A.Md.",
+    "PHD": "Ph.D",
+    "PHD.": "Ph.D",
+    "MBA": "MBA",
+    "DRS": "Drs.",
+    "DRA": "Dra.",
+    "PROF": "Prof.",
+    "IR": "Ir.",
+    "DR": "Dr.",
+    "HJ": "Hj.",
+    "H": "H.",
+}
+
+# Honorifics that sit in front of the given name.
+GELAR_PREFIXES = ("Prof.", "Drs.", "Dra.", "Ir.", "Dr.", "dr.", "Hj.", "H.")

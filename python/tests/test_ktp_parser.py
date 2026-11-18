@@ -37,7 +37,7 @@ def test_garut_sample_returns_full_schema():
     assert parsed["alamat"] == "KP. CIKANCUNG"
     assert parsed["provinsi"] == "JAWA BARAT"
     assert parsed["kabupaten_kota"] == "GARUT"
-    assert parsed["jenis_kelamin"] is None
+    assert parsed["jenis_kelamin"] == "LAKI-LAKI"
     assert parsed["issued_place"] is None
     assert parsed["issued_date"] is None
 
@@ -245,7 +245,8 @@ def test_bottom_issue_date_wins_when_birth_line_is_unlabeled():
     assert parsed["nama"] == "RISWANDI"
     assert parsed["issued_date"] == "13-11-2018"
     assert parsed["issued_place"] == "PEMALANG"
-    assert parsed["tempat_tgl_lahir"] is None
+    assert parsed["tempat_tgl_lahir"] == "PEMALANG, 11-12-1989"
+    assert parsed["tgl_lahir"] == "11-12-1989"
 
 
 def test_same_line_fuzzy_gender_and_blood():
@@ -266,7 +267,7 @@ def test_empty_input_returns_null_fields():
     assert parsed == {key: None for key in KTP_FIELDS}
 
 
-# Live service OCR text from ten previously tested cards (no images).
+# Live service OCR text from previously tested cards (no images).
 # Fixtures are under tests/fixtures/ktp/.
 
 _KTP_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "ktp"
@@ -284,7 +285,7 @@ def _fixture_txts(name: str) -> list[str]:
             "ebta_sleman",
             {
                 "nik": "3403081205820001",
-                "nama": "EBTA SETIAWAN, S.T",
+                "nama": "EBTA SETIAWAN, S.T.",
                 "tempat_tgl_lahir": "GUNUNGKIDUL, 12-05-1982",
                 "jenis_kelamin": "LAKI-LAKI",
                 "gol_darah": "-",
@@ -502,6 +503,33 @@ def _fixture_txts(name: str) -> list[str]:
                 "issued_date": "01-01-2017",
             },
         ),
+        (
+            "endar_sleman",
+            {
+                "nik": "3404112805790001",
+                "nama": "ENDAR KUSMARWANTO, S.T., MBA",
+                "nama_tanpa_gelar": "ENDAR KUSMARWANTO",
+                "gelar": "S.T., MBA",
+                "tempat_tgl_lahir": "SLEMAN, 28-05-1979",
+                "tempat_lahir": "SLEMAN",
+                "tgl_lahir": "28-05-1979",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "O",
+                "alamat": "KALIMANJUNG",
+                "rt_rw": "005/032",
+                "kel_desa": "AMBARKETAWANG",
+                "kecamatan": "GAMPING",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "KARYAWAN SWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "DAERAH ISTIMEWA YOGYAKARTA",
+                "kabupaten_kota": "SLEMAN",
+                "issued_place": "SLEMAN",
+                "issued_date": "15-10-2016",
+            },
+        ),
     ],
 )
 def test_live_ocr_fixtures(name, expected):
@@ -661,3 +689,116 @@ def test_empty_input_still_leaves_gol_darah_null():
     parsed = parse_ktp([])
     assert parsed["gol_darah"] is None
 
+def test_glued_titles_and_dot_blood_and_next_line_birth_date():
+    parsed = parse_ktp(
+        [
+            "NIK 3404112805790001",
+            "Nama :ENDAR KUSMARWANTOS.T.,MBA",
+            "Tempat/TgiLahir: SLEMAN",
+            "28-05-1979",
+            "Gol Darah .O",
+        ]
+    )
+
+    assert parsed["nama"] == "ENDAR KUSMARWANTO, S.T., MBA"
+    assert parsed["nama_tanpa_gelar"] == "ENDAR KUSMARWANTO"
+    assert parsed["gelar"] == "S.T., MBA"
+    assert parsed["tempat_tgl_lahir"] == "SLEMAN, 28-05-1979"
+    assert parsed["tempat_lahir"] == "SLEMAN"
+    assert parsed["tgl_lahir"] == "28-05-1979"
+    assert parsed["gol_darah"] == "O"
+
+
+def test_existing_titles_stay_canonical():
+    assert parse_ktp(["Nama :EBTA SETIAWAN, S.T"])["nama"] == "EBTA SETIAWAN, S.T."
+    assert parse_ktp(["Nama :YOGI IRFAN ROSYADI, S.Pd.I"])["nama"] == "YOGI IRFAN ROSYADI, S.Pd.I"
+    parsed = parse_ktp(["Nama :Dr. BUDI SANTOSO, M.M."])
+    assert parsed["nama"] == "Dr. BUDI SANTOSO, M.M."
+    assert parsed["gelar"] == "Dr., M.M."
+    assert parsed["nama_tanpa_gelar"] == "BUDI SANTOSO"
+
+
+def test_nik_fills_missing_birth_date_without_overwriting_a_valid_one():
+    filled = parse_ktp(
+        [
+            "NIK 3404112805790001",
+            "Nama :ENDAR KUSMARWANTO",
+            "Tempat/Tgl Lahir : SLEMAN",
+        ]
+    )
+    assert filled["tgl_lahir"] == "28-05-1979"
+    assert filled["tempat_tgl_lahir"] == "SLEMAN, 28-05-1979"
+    assert filled["jenis_kelamin"] == "LAKI-LAKI"
+
+    kept = parse_ktp(
+        [
+            "NIK 3216231006900004",
+            "Nama :ERIP SARIPUDIN",
+            "Tempat/Tgl Lahir : BEKASI, 10-05-1990",
+        ]
+    )
+    # Printed date stays when it is valid, even if NIK digits 7-12 differ.
+    assert kept["tgl_lahir"] == "10-05-1990"
+
+
+def test_wilayah_typos_and_short_names():
+    from rapidocr.postprocess import ktp_wilayah
+
+    assert ktp_wilayah.match_region("DAEBAHISTIMEWAYO", ktp_wilayah.province_names()) == (
+        "DAERAH ISTIMEWA YOGYAKARTA"
+    )
+    assert ktp_wilayah.match_region("SVAN", ktp_wilayah.regency_names()) is None
+    assert ktp_wilayah.nik_region("3404112805790001") == (
+        "DAERAH ISTIMEWA YOGYAKARTA",
+        "SLEMAN",
+    )
+
+
+def test_endar_column_interleaved_ocr():
+    """Worn-card reading order parks the birth place between Nama and the name."""
+    parsed = parse_ktp(
+        [
+            "PROVINSIDAERAHISTIMEWAYO",
+            "KABUPATENSVAN",
+            "NIK",
+            "3404112805790001",
+            "Tempat/TglLabir",
+            "Nama",
+            "SLEMAN",
+            ":ENDAR KUSMARWANTOS.T.,MBA",
+            "28-05-1979",
+            "Janis kelamin",
+            "LAKI-LAKI",
+            "Alarnat",
+            "KALIMANJUNG",
+            "KelDesa AMBARETAWANG",
+            "RT/RW",
+            "005/032",
+            "Kecamatan",
+            "Agama",
+            "ISLAM",
+            "Status Perkawinan: KAWiN",
+            "SLEMAN",
+            "eaan",
+            "KARYAWAN SWASTA",
+            "15-10-2016",
+            "vganegaraan:WNI",
+            "Hingga",
+            "SEUMURHIDUP",
+        ]
+    )
+
+    assert parsed["nama"] == "ENDAR KUSMARWANTO, S.T., MBA"
+    assert parsed["gelar"] == "S.T., MBA"
+    assert parsed["tempat_tgl_lahir"] == "SLEMAN, 28-05-1979"
+    assert parsed["alamat"] == "KALIMANJUNG"
+    assert parsed["kel_desa"] == "AMBARKETAWANG"
+    assert parsed["kewarganegaraan"] == "WNI"
+    assert parsed["berlaku_hingga"] == "SEUMUR HIDUP"
+    assert parsed["provinsi"] == "DAERAH ISTIMEWA YOGYAKARTA"
+    assert parsed["kabupaten_kota"] == "SLEMAN"
+    assert parsed["issued_place"] == "SLEMAN"
+    assert parsed["issued_date"] == "15-10-2016"
+    # Gol. Darah and Kecamatan were not present in this OCR pass.
+    assert parsed["gol_darah"] == "-"
+    assert parsed["kecamatan"] is None

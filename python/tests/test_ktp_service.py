@@ -80,7 +80,7 @@ def test_version_endpoint():
         "workers": worker_count(),
         "max_side": effective_max_side(),
     }
-    assert body["version"] == "1.5.2"
+    assert body["version"] == "1.5.3"
     assert response.headers["content-type"].startswith("application/json")
 
 

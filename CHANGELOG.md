@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.5.3] - 2026-11-18
+
+### Added
+
+- KTP parser peels academic and honorific titles that are glued to or written next to the name (`S.T.`, `S.Pd.I`, `MBA`, `Dr.`, `Hj.`, and similar) and formats `nama` as `NAME, S.T., MBA`. Optional `gelar` and `nama_tanpa_gelar` are returned alongside the full `nama`.
+- `tempat_lahir` and `tgl_lahir` are split out of `tempat_tgl_lahir`. A birth date on the next line is joined in, dates are validated, and a missing or invalid date (and a missing gender) can be filled from NIK digits 7-12. A valid printed date is kept even when it disagrees with the NIK.
+- Offline `ktp_wilayah.json` maps NIK digits 1-4 to the 38 provinces and 514 kabupaten/kota, and fuzzy-matches chewed headers such as `PROVINSIDAEBAHISTIMEWAYO`. Short four-letter typos like `SVAN` are not forced into a nearby name.
+
+### Changed
+
+- `gol_darah` now reads values after punctuation (`Gol Darah .O`, `:O`) and still maps a lone `0` next to the label to `O`. Empty Gol. Darah still defaults to `-`.
+- Broken labels (`Alarnal`, `Ke/Desa`, `kerjaan`, `vganegaraan`, `Hingga`, `Jonis L.elamin`, `TgiLahir`) are matched more loosely. Unlabeled `WNI` / `SEUMUR HIDUP` can be inferred when the slot is still empty.
+- Village names around Sleman (`AMBARKETAWANG`, `GAMPING`, and neighbours) were added to the place gazetteer.
+- `/parse/ktp` now also returns `nama_tanpa_gelar`, `gelar`, `tempat_lahir`, and `tgl_lahir`.
+
 ## [1.5.2] - 2026-11-15
 
 ### Added
