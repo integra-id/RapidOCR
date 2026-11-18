@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from rapidocr.postprocess import KTP_FIELDS, parse_ktp
 from rapidocr.service.app import create_app, parse_ktp_body
 from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
-from rapidocr.service.runtime import effective_max_side, worker_count
+from rapidocr.service.runtime import effective_max_side, min_short, worker_count
 from tests.test_ktp_parser import BEKASI_KTP_LINES, GARUT_KTP_LINES, PEMALANG_KTP_LINES
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,6 +64,7 @@ def test_health_reports_indonesian_models_ready():
         "models_ready": True,
         "workers": worker_count(),
         "max_side": effective_max_side(),
+        "min_short": min_short(),
     }
 
 
@@ -79,6 +80,7 @@ def test_version_endpoint():
         "provider": "cpu",
         "workers": worker_count(),
         "max_side": effective_max_side(),
+        "min_short": min_short(),
     }
     assert body["version"] == "1.5.3"
     assert response.headers["content-type"].startswith("application/json")

@@ -108,9 +108,9 @@ Batas keras tetap 20 halaman yang di-raster dan 20 MB.
 
 Jika `RAPIDOCR_API_KEY` diisi, semua rute selain `/health` meminta header `X-API-Key` atau `Authorization: Bearer`. `RAPIDOCR_RATE_LIMIT` membatasi 60 permintaan per menit; `0` mematikan batas.
 
-Gambar besar diperkecil sebelum OCR. `RAPIDOCR_MAX_SIDE` (bawaan 1280) membatasi sisi terpanjang dalam piksel; `0` memakai batas pustaka 2000. `RAPIDOCR_WORKERS` (bawaan: setengah jumlah CPU, paling sedikit 2 dan paling banyak 4) membuat beberapa sesi model dalam satu proses, jadi permintaan yang datang bersamaan tidak mengantri di satu kunci global. `RAPIDOCR_INTRA_THREADS` (bawaan `cores / workers`) mengatur thread ONNX per sesi. Jangan memakai `uvicorn --workers` sebagai ganti pool ini: setiap proses akan memuat model lagi.
+Gambar besar diperkecil sebelum OCR. `RAPIDOCR_MAX_SIDE` (bawaan 1280) membatasi sisi terpanjang dalam piksel; `0` memakai batas pustaka 2000. `RAPIDOCR_MIN_SHORT` (bawaan 960) menjaga sisi pendek tidak turun di bawah itu, jadi foto KTP yang lebih ramping (2304×4096) tidak kehilangan baris kecil seperti Gol. Darah; foto 3072×4096 tetap dipotong ke 1280. `0` mematikan batas sisi pendek itu. `RAPIDOCR_WORKERS` (bawaan: setengah jumlah CPU, paling sedikit 2 dan paling banyak 4) membuat beberapa sesi model dalam satu proses, jadi permintaan yang datang bersamaan tidak mengantri di satu kunci global. `RAPIDOCR_INTRA_THREADS` (bawaan `cores / workers`) mengatur thread ONNX per sesi. Jangan memakai `uvicorn --workers` sebagai ganti pool ini: setiap proses akan memuat model lagi.
 
-`/health` dan `/version` menampilkan `workers` dan `max_side`.
+`/health` dan `/version` menampilkan `workers`, `max_side`, dan `min_short`.
 
 
 `format=csv` menyusun tabel dari kotak yang sejajar. Markdown/HTML menaikkan baris yang lebih tinggi menjadi judul dan baris berbutir menjadi daftar. Sel yang digabung dan garis tabel tidak dikenali.

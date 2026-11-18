@@ -83,6 +83,12 @@ def test_resize_max_side_and_box_scale():
     image = np.zeros((4096, 3072, 3), dtype=np.uint8)
     resized, scale_x, scale_y = resize_max_side(image, 1280)
     assert max(resized.shape[:2]) == 1280
+    skinny = np.zeros((4096, 2304, 3), dtype=np.uint8)
+    loosened, sx, sy = resize_max_side(skinny, 1280, min_short=960)
+    assert max(loosened.shape[:2]) == 1707
+    assert min(loosened.shape[:2]) == 960
+    hard, _, _ = resize_max_side(skinny, 1280, min_short=0)
+    assert max(hard.shape[:2]) == 1280
     assert scale_x == pytest.approx(3072 / resized.shape[1])
     assert scale_y == pytest.approx(4096 / resized.shape[0])
 

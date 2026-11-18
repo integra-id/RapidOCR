@@ -802,3 +802,12 @@ def test_endar_column_interleaved_ocr():
     # Gol. Darah and Kecamatan were not present in this OCR pass.
     assert parsed["gol_darah"] == "-"
     assert parsed["kecamatan"] is None
+
+
+def test_glued_kel_desa_prefix_is_peeled():
+    parsed = parse_ktp(["KeVDesaAMBARKETAWANG", "Kecamatan :GAMPING"])
+
+    assert parsed["kel_desa"] == "AMBARKETAWANG"
+    assert parsed["kecamatan"] == "GAMPING"
+    # Spaced sample-card values must not be peeled as a glued label.
+    assert parse_ktp(["Nama", "NAMA LENGKAP"])["nama"] == "NAMA LENGKAP"

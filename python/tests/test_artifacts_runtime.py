@@ -11,10 +11,13 @@ from rapidocr.service.runtime import (
     active_provider,
     default_worker_count,
     effective_max_side,
+    engine_max_side,
     engine_params,
     intra_op_threads,
     max_side,
+    min_short,
     requested_provider,
+    target_max_side,
     worker_count,
 )
 
@@ -62,7 +65,7 @@ def test_cuda_request_without_provider_uses_cpu(monkeypatch):
     assert requested_provider() == "cuda"
     params = engine_params()
     assert params["EngineConfig.onnxruntime.use_cuda"] is True
-    assert params["Global.max_side_len"] == effective_max_side()
+    assert params["Global.max_side_len"] == engine_max_side()
     assert active_provider() == "cpu"
 
 
@@ -72,7 +75,7 @@ def test_default_provider_is_cpu(monkeypatch):
     assert requested_provider() == "cpu"
     params = engine_params()
     assert "EngineConfig.onnxruntime.use_cuda" not in params
-    assert params["Global.max_side_len"] == effective_max_side()
+    assert params["Global.max_side_len"] == engine_max_side()
     assert params["EngineConfig.onnxruntime.intra_op_num_threads"] == intra_op_threads()
     assert params["EngineConfig.onnxruntime.inter_op_num_threads"] == 1
     assert active_provider() == "cpu"
@@ -114,6 +117,25 @@ def test_max_side_reads_env(monkeypatch):
     assert max_side() == 32
     monkeypatch.setenv("RAPIDOCR_MAX_SIDE", "bad")
     assert max_side() == 1280
+
+
+def test_min_short_loosens_skinny_photos_but_keeps_ebta_at_1280(monkeypatch):
+    monkeypatch.delenv("RAPIDOCR_MIN_SHORT", raising=False)
+    monkeypatch.delenv("RAPIDOCR_MAX_SIDE", raising=False)
+    assert min_short() == 960
+    # Worn Sleman card is 2304x4096; a hard 1280 cap would shrink the short
+    # side to 720 and drop Gol. Darah / GAMPING.
+    assert target_max_side(4096, 2304) == 1707
+    # Ebta's 3072x4096 still fits a 1280 cap with short side exactly 960.
+    assert target_max_side(4096, 3072) == 1280
+    # Small cards are unchanged.
+    assert target_max_side(680, 1220) == 0
+    monkeypatch.setenv("RAPIDOCR_MIN_SHORT", "0")
+    assert min_short() == 0
+    assert target_max_side(4096, 2304) == 1280
+    assert engine_max_side() == 1280
+    monkeypatch.delenv("RAPIDOCR_MIN_SHORT", raising=False)
+    assert engine_max_side() == 8192
 
 
 def test_intra_op_threads_split_cores(monkeypatch):

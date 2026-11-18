@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Broken labels (`Alarnal`, `Ke/Desa`, `kerjaan`, `vganegaraan`, `Hingga`, `Jonis L.elamin`, `TgiLahir`) are matched more loosely. Unlabeled `WNI` / `SEUMUR HIDUP` can be inferred when the slot is still empty.
 - Village names around Sleman (`AMBARKETAWANG`, `GAMPING`, and neighbours) were added to the place gazetteer.
 - `/parse/ktp` now also returns `nama_tanpa_gelar`, `gelar`, `tempat_lahir`, and `tgl_lahir`.
+- `RAPIDOCR_MAX_SIDE` stays 1280, but `RAPIDOCR_MIN_SHORT` (default 960) stops a skinny photo from being crushed below that short side. The worn Sleman KTP (2304×4096) is therefore sent at 960×1707 so Gol. Darah and Kecamatan GAMPING still read, while a 3072×4096 photo still caps at 1280. Set `RAPIDOCR_MIN_SHORT=0` for a hard long-side cap. The engine's `Global.max_side_len` is raised to 8192 when the floor is on, so the service resize is not undone. `/health` and `/version` report `min_short`.
 
 ## [1.5.2] - 2026-11-15
 

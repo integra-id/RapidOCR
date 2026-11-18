@@ -8,10 +8,13 @@ machine has no GPU.
 ``RAPIDOCR_WORKERS`` is the number of in-process OCR engine sessions
 (default: half the CPU count, clamped to 2–4, or 1 on a single core).
 ``RAPIDOCR_MAX_SIDE`` caps the longest image side in pixels before OCR
-(default 1280; ``0`` leaves the library default of 2000). Intra-op ONNX
-threads per session are ``max(1, cores // workers)`` unless
-``RAPIDOCR_INTRA_THREADS`` is set, so workers × threads stay near the
-core count.
+(default 1280; ``0`` leaves the library default of 2000).
+``RAPIDOCR_MIN_SHORT`` (default 960) is a short-side floor: a skinny
+photo is not crushed below that height/width, even if the long side
+then exceeds ``RAPIDOCR_MAX_SIDE``. Set it to ``0`` for a hard long-side
+cap. Intra-op ONNX threads per session are ``max(1, cores // workers)``
+unless ``RAPIDOCR_INTRA_THREADS`` is set, so workers × threads stay
+near the core count.
 """
 
 from __future__ import annotations
@@ -22,7 +25,9 @@ from typing import Optional
 from rapidocr.utils.log import logger
 
 DEFAULT_MAX_SIDE = 1280
+DEFAULT_MIN_SHORT = 960
 LIBRARY_MAX_SIDE = 2000
+ENGINE_SIDE_CEILING = 8192
 MAX_WORKERS_CAP = 16
 
 
@@ -104,9 +109,44 @@ def effective_max_side() -> int:
     return LIBRARY_MAX_SIDE if cap == 0 else cap
 
 
+def min_short() -> int:
+    """Minimum short side in pixels after downscale. 0 disables the floor."""
+    value = _int_env("RAPIDOCR_MIN_SHORT")
+    if value is None:
+        return DEFAULT_MIN_SHORT
+    if value <= 0:
+        return 0
+    return max(32, min(value, ENGINE_SIDE_CEILING))
+
+
+def target_max_side(height: int, width: int, cap: Optional[int] = None, floor: Optional[int] = None) -> int:
+    """Long-side cap to use for this image, loosened to keep the short side."""
+    cap = effective_max_side() if cap is None else cap
+    floor = min_short() if floor is None else floor
+    if cap <= 0:
+        return 0
+    long_side = max(int(height), int(width))
+    short_side = min(int(height), int(width))
+    if long_side <= cap:
+        return 0
+    if floor and short_side * cap / long_side < floor:
+        return min(long_side, max(cap, int(round(floor * long_side / float(short_side)))))
+    return cap
+
+
+def engine_max_side() -> int:
+    """Library ceiling so a min-short loosening is not undone inside the engine."""
+    cap = max_side()
+    if cap <= 0:
+        return LIBRARY_MAX_SIDE
+    if min_short() <= 0:
+        return cap
+    return max(cap, ENGINE_SIDE_CEILING)
+
+
 def engine_params() -> dict:
     params: dict = {}
-    cap = max_side()
+    cap = engine_max_side()
     if cap > 0:
         params["Global.max_side_len"] = cap
     if requested_provider() == "cuda":

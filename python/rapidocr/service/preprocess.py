@@ -126,9 +126,11 @@ def _clahe(image: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
 
 
-def resize_max_side(image: np.ndarray, cap: int):
+def resize_max_side(image: np.ndarray, cap: int, min_short: int = 0):
     """Downscale so the longest side is at most ``cap``. Returns image, sx, sy.
 
+    If ``min_short`` is set, the short side is not reduced below that value
+    (the long side may then exceed ``cap``). The image is never upscaled.
     ``sx`` and ``sy`` map resized coordinates back to the input image.
     ``cap <= 0`` leaves the image unchanged.
     """
@@ -136,9 +138,15 @@ def resize_max_side(image: np.ndarray, cap: int):
         return image, 1.0, 1.0
     height, width = image.shape[:2]
     long_side = max(height, width)
+    short_side = min(height, width)
     if long_side <= cap:
         return image, 1.0, 1.0
-    scale = cap / float(long_side)
+    target = cap
+    if min_short and short_side * cap / float(long_side) < min_short:
+        target = min(long_side, max(cap, int(round(min_short * long_side / float(short_side)))))
+    if target >= long_side:
+        return image, 1.0, 1.0
+    scale = target / float(long_side)
     new_w = max(1, int(round(width * scale)))
     new_h = max(1, int(round(height * scale)))
     resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)

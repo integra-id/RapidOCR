@@ -52,6 +52,7 @@ from rapidocr.service.runtime import (
     effective_max_side,
     engine_params,
     max_side,
+    min_short,
     requested_provider,
     worker_count,
 )
@@ -123,6 +124,7 @@ class HealthResponse(BaseModel):
     models_ready: bool
     workers: int
     max_side: int
+    min_short: int
 
 
 class VersionResponse(BaseModel):
@@ -131,6 +133,7 @@ class VersionResponse(BaseModel):
     provider: str
     workers: int
     max_side: int
+    min_short: int
 
 
 class Artifact(BaseModel):
@@ -430,9 +433,10 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         )
         app.state.ready = True
         logger.info(
-            "OCR pool ready: %s session(s), max_side=%s",
+            "OCR pool ready: %s session(s), max_side=%s, min_short=%s",
             pool.size,
             effective_max_side(),
+            min_short(),
         )
         yield
         app.state.ready = False
@@ -466,6 +470,7 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             "models_ready": ready,
             "workers": worker_count(),
             "max_side": effective_max_side(),
+            "min_short": min_short(),
         }
 
     @app.get("/version", response_model=VersionResponse)
@@ -476,6 +481,7 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             "provider": active_provider(),
             "workers": worker_count(),
             "max_side": effective_max_side(),
+            "min_short": min_short(),
         }
 
     @app.post(
@@ -916,7 +922,7 @@ def _maybe_downscale(payload):
     cap = max_side()
     if cap <= 0 or not isinstance(payload, np.ndarray):
         return payload, 1.0, 1.0
-    return resize_max_side(payload, cap)
+    return resize_max_side(payload, cap, min_short=min_short())
 
 
 async def _run_async(app: FastAPI, payload):

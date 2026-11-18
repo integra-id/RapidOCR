@@ -838,6 +838,32 @@ def _exact_label_segments(line: str) -> list[tuple[str, str]]:
     return segments
 
 
+_GLUED_VALUE_FIELDS = frozenset({"kel_desa", "kecamatan"})
+
+
+def _peel_glued_field(line: str) -> Optional[tuple[str, str]]:
+    """Split a spaceless 'KeVDesaAMBARKETAWANG' into a label and a place value."""
+    compact = _compact(line)
+    best: Optional[tuple[int, int, str, str]] = None
+    for field, canon in _CANON_COMPACT:
+        if field not in _GLUED_VALUE_FIELDS:
+            continue
+        if len(canon) < 5 or len(compact) < len(canon) + 4:
+            continue
+        prefix, rest = compact[: len(canon)], compact[len(canon) :]
+        distance = _levenshtein(prefix, canon)
+        if distance > _edit_limit(len(canon)):
+            continue
+        rank = (distance, -len(canon), field, rest)
+        if best is None or rank[:2] < best[:2]:
+            best = rank
+    if best is None:
+        return None
+    letters = re.sub(r"[^A-Za-z]", "", line)
+    remainder = letters[-len(best[3]) :] if letters else best[3]
+    return best[2], remainder.upper()
+
+
 def _fuzzy_leading_label(line: str) -> Optional[tuple[str, str]]:
     if re.search(r"[:：]", line):
         label, value = re.split(r"[:：]", line, maxsplit=1)
@@ -878,10 +904,16 @@ def _split_labels(line: str) -> list[tuple[str, str]]:
     exact = _exact_label_segments(line)
     if exact:
         return exact
-    fuzzy = _fuzzy_leading_label(_strip_leading_colon(line))
-    if fuzzy is None:
-        return []
-    return [fuzzy]
+    stripped = _strip_leading_colon(line)
+    fuzzy = _fuzzy_leading_label(stripped)
+    if fuzzy is not None and fuzzy[1]:
+        return [fuzzy]
+    glued = _peel_glued_field(stripped)
+    if glued is not None:
+        return [glued]
+    if fuzzy is not None:
+        return [fuzzy]
+    return []
 
 
 def _is_gelar_line(line: str) -> bool:
