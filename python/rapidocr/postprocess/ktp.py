@@ -241,6 +241,7 @@ def parse_ktp(
     _assign_issued(fields, lines, used)
     _apply_nik_demographics(fields)
     _apply_nik_regions(fields)
+    _recover_gol_darah(fields, lines, used)
     _default_gol_darah(fields, lines)
     _finalize_derived(fields)
     return fields
@@ -749,6 +750,16 @@ def _clean_berlaku(value: str) -> Optional[str]:
     return text or None
 
 
+def _clean_warga(value: str) -> Optional[str]:
+    text = _normalize_spacing(value).upper()
+    compact = re.sub(r"[^A-Z]", "", text)
+    if compact in {"WNI", "WNA"} or compact.endswith("WNI"):
+        return "WNI" if compact.endswith("WNI") else compact
+    if compact.endswith("WNA"):
+        return "WNA"
+    return text or None
+
+
 def _clean_field(key: str, value: str) -> Optional[str]:
     if key == "nik":
         return find_nik(value, strict=False)
@@ -770,6 +781,8 @@ def _clean_field(key: str, value: str) -> Optional[str]:
         return _clean_rt_rw(value)
     if key == "berlaku_hingga":
         return _clean_berlaku(value)
+    if key == "kewarganegaraan":
+        return _clean_warga(value)
     if key in {"kel_desa", "kecamatan"}:
         text = _correct_place_name(value, whole=True)
         return text or None
@@ -781,6 +794,7 @@ def _clean_field(key: str, value: str) -> Optional[str]:
             text,
         )
         text = _correct_place_name(text, whole=False)
+        text = _space_roman_street(text)
         return text or None
     if key == "provinsi":
         text = _expand_glued_place(value)
@@ -956,6 +970,50 @@ def _line_has_gol_darah_label(line: str) -> bool:
         return True
     header = _match_header(line)
     return header is not None and header[0] == "gol_darah"
+
+
+def _space_roman_street(text: str) -> str:
+    """Insert a space before a trailing Roman numeral on a street token."""
+    if not text:
+        return text
+
+    def replacer(match: re.Match[str]) -> str:
+        token = match.group(0)
+        for roman in ("VIII", "VII", "III", "II", "IX", "IV", "VI"):
+            if token.upper().endswith(roman) and len(token) - len(roman) >= 3:
+                return f"{token[:-len(roman)]} {token[-len(roman):]}"
+        return token
+
+    return re.sub(
+        r"(?i)[A-Z]{3,}(?:VIII|VII|III|II|IX|IV|VI)",
+        replacer,
+        text,
+    )
+
+
+def _recover_gol_darah(
+    fields: dict[str, Optional[str]],
+    lines: Sequence[str],
+    used: set[int],
+) -> None:
+    """Catch a lone ABO token that OCR split onto its own box.
+
+    The printed value often sits on the same row as Gol. Darah but is
+    emitted as a later unlabeled line. Do not invent a type when none
+    of those leftovers look like A/B/AB/O.
+    """
+    if fields.get("gol_darah"):
+        return
+    if not any(_line_has_gol_darah_label(line) for line in lines):
+        return
+    for index, line in enumerate(lines):
+        if index in used:
+            continue
+        cleaned = _clean_blood(line)
+        if cleaned and cleaned != "-":
+            fields["gol_darah"] = cleaned
+            used.add(index)
+            return
 
 
 def _default_gol_darah(
@@ -1437,17 +1495,22 @@ def _recover_alamat(
         candidates.append(label_at - 1)
     if label_at + 1 < len(lines) and (label_at + 1) not in used:
         candidates.append(label_at + 1)
-    # Column-interleaved OCR often parks the street line just above RT/RW.
+    # Column-interleaved OCR often parks the street line just above RT/RW,
+    # sometimes with an empty Gol. Darah (or similar) label in between.
     for index, line in enumerate(lines):
         segments = _split_labels(line)
-        if (
-            segments
-            and segments[0][0] == "rt_rw"
-            and index > 0
-            and (index - 1) not in used
-            and (index - 1) not in candidates
-        ):
-            candidates.append(index - 1)
+        if not (segments and segments[0][0] == "rt_rw"):
+            continue
+        cursor = index - 1
+        skipped = 0
+        while cursor >= 0 and skipped <= 3:
+            if cursor in used or _is_structural(lines[cursor]):
+                cursor -= 1
+                skipped += 1
+                continue
+            if cursor not in candidates:
+                candidates.append(cursor)
+            break
 
     for index in candidates:
         if _is_issue_place_line(lines, index):

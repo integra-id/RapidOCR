@@ -5,7 +5,9 @@ Steps, in order, when ``mode`` is ``full``:
 
 - Deskew: estimate the text tilt and rotate only when it is about 0.8 to 15
   degrees. A straight page is left unchanged.
-- Denoise: a 3x3 median blur, only when a cheap noise residual is high.
+- Denoise: a 3x3 median blur, only when a cheap noise residual is high
+  enough that the image is likely grainy. Sharp KTP scans with security-pattern
+  texture sit around a residual of 6-7; blurring those smudges OCR-A digits.
 - Contrast: CLAHE on the lightness channel so faint phone photos stay readable.
 
 ``light`` runs CLAHE only. ``off`` returns the image unchanged.
@@ -110,10 +112,19 @@ def _skew_degrees(image: np.ndarray) -> Optional[float]:
     return float(angle)
 
 
-def _maybe_denoise(image: np.ndarray) -> np.ndarray:
+# Security-pattern texture on sharp KTP photos often scores ~6-7 and must
+# not be median-blurred; only grainier shots should be denoised.
+DENOISE_RESIDUAL_MIN = 8.0
+
+
+def _noise_residual(image: np.ndarray) -> float:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     residual = cv2.absdiff(gray, cv2.medianBlur(gray, 3))
-    if float(residual.mean()) < 6.0:
+    return float(residual.mean())
+
+
+def _maybe_denoise(image: np.ndarray) -> np.ndarray:
+    if _noise_residual(image) < DENOISE_RESIDUAL_MIN:
         return image
     return cv2.medianBlur(image, 3)
 

@@ -530,6 +530,33 @@ def _fixture_txts(name: str) -> list[str]:
                 "issued_date": "15-10-2016",
             },
         ),
+        (
+            "yuda_sleman",
+            {
+                "nik": "3404122404790007",
+                "nama": "YUDA WICAKSANA PUTRA, S.T., MBA",
+                "nama_tanpa_gelar": "YUDA WICAKSANA PUTRA",
+                "gelar": "S.T., MBA",
+                "tempat_tgl_lahir": "YOGYAKARTA, 24-04-1979",
+                "tempat_lahir": "YOGYAKARTA",
+                "tgl_lahir": "24-04-1979",
+                "jenis_kelamin": "LAKI-LAKI",
+                "gol_darah": "O",
+                "alamat": "JL. TONGKOL III/43",
+                "rt_rw": "009/002",
+                "kel_desa": "MINOMARTANI",
+                "kecamatan": "NGAGLIK",
+                "agama": "ISLAM",
+                "status_perkawinan": "KAWIN",
+                "pekerjaan": "WIRASWASTA",
+                "kewarganegaraan": "WNI",
+                "berlaku_hingga": "SEUMUR HIDUP",
+                "provinsi": "DAERAH ISTIMEWA YOGYAKARTA",
+                "kabupaten_kota": "SLEMAN",
+                "issued_place": "SLEMAN",
+                "issued_date": "29-06-2021",
+            },
+        ),
     ],
 )
 def test_live_ocr_fixtures(name, expected):
@@ -811,3 +838,82 @@ def test_glued_kel_desa_prefix_is_peeled():
     assert parsed["kecamatan"] == "GAMPING"
     # Spaced sample-card values must not be peeled as a glued label.
     assert parse_ktp(["Nama", "NAMA LENGKAP"])["nama"] == "NAMA LENGKAP"
+
+
+def test_garbled_mba_fragments_and_roman_street():
+    parsed = parse_ktp(
+        [
+            "NIK",
+            "3404122404790007",
+            "Nama",
+            ":YUDA WICAKSANA PUTRA, S.T,M B.A.",
+            "Tempat/Tgl Lahir:YOGYAKARTA,24-04-1979",
+            "Jenis Kelamin",
+            ":LAKI-LAKI",
+            "Gol. Darah",
+            "Alamat",
+            "JL.TONGKOLIII/43",
+            "RT/RW",
+            "009/002",
+        ]
+    )
+
+    assert parsed["nama"] == "YUDA WICAKSANA PUTRA, S.T., MBA"
+    assert parsed["gelar"] == "S.T., MBA"
+    assert parsed["alamat"] == "JL. TONGKOL III/43"
+
+
+def test_spaced_mba_title_without_commas():
+    parsed = parse_ktp(["Nama", "YUDA WICAKSANA PUTRA S.T M B.A."])
+
+    assert parsed["nama"] == "YUDA WICAKSANA PUTRA, S.T., MBA"
+    assert parsed["gelar"] == "S.T., MBA"
+
+
+def test_gol_darah_recovers_split_abo_token():
+    parsed = parse_ktp(
+        [
+            "NIK",
+            "3404122404790007",
+            "Nama",
+            "YUDA WICAKSANA PUTRA",
+            "Jenis Kelamin",
+            ":LAKI-LAKI",
+            "Gol. Darah",
+            "Alamat",
+            ":JL. TONGKOL III/43",
+            "O",
+        ]
+    )
+
+    assert parsed["gol_darah"] == "O"
+    assert parsed["alamat"] == "JL. TONGKOL III/43"
+
+
+def test_alamat_recovers_when_gol_darah_sits_above_rt_rw():
+    parsed = parse_ktp(
+        [
+            "NIK",
+            "3517171001910001",
+            "Nama",
+            "SOFYAN AINUR ROZIQI",
+            "Alamat",
+            "Jenis Kelamin",
+            "LAKI-LAKI",
+            "OSN RANDUWATANG KIDUL",
+            "Got. Darah",
+            "RT/RW",
+            "003/002",
+        ]
+    )
+
+    assert parsed["alamat"] == "DSN. RANDUWATANG KIDUL"
+    assert parsed["rt_rw"] == "003/002"
+    assert parsed["gol_darah"] == "-"
+    assert parsed["jenis_kelamin"] == "LAKI-LAKI"
+
+
+def test_kewarganegaraan_strips_ocr_junk_around_wni():
+    parsed = parse_ktp(["Kewarganegaraan_: WNI"])
+
+    assert parsed["kewarganegaraan"] == "WNI"

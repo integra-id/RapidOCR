@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [1.5.4] - 2026-11-23
+
+### Fixed
+
+- When the text-line angle classifier rotates a crop 180°, recognition is also run on the unflipped crop and the higher-scoring text is kept (`Global.cls_score_flip_guard`, default on). A confident but wrong flip on a blurry OCR-A NIK line no longer turns the digits into garbage and drops the field.
+- Full preprocess no longer median-blurs sharp KTP scans whose security-pattern texture only barely exceeded the old residual threshold of 6. The denoise residual floor is now 8.0, which still blurs grainier shots.
+- The KTP parser reads a Gol. Darah value that OCR split onto its own box, peels garbled `M.B.A.` fragments such as `S.T,M B.A.` as `MBA` (same style as `S.T., MBA`), inserts a space before a glued Roman numeral on a street (`TONGKOLIII/43`), recovers a street line when an empty Gol. Darah sits above RT/RW, and strips OCR junk around `WNI` (`Kewarganegaraan_: WNI`).
+
+### Changed
+
+- A twelfth KTP regression card (DIY Sleman) is covered by a text-only fixture and the default `/parse/ktp` path. The image is not committed.
+
 ## [1.5.3] - 2026-11-18
 
 ### Added

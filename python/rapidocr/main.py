@@ -5,7 +5,7 @@ import argparse
 import copy
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -181,6 +181,17 @@ class RapidOCR:
             except RapidOCRError as e:
                 logger.warning(e)
                 return det_res, cls_res, TextRecOutput(), []
+            if self.use_cls and self.cfg.Global.get("cls_score_flip_guard", True):
+                try:
+                    rec_res, cls_res = apply_cls_flip_guard(
+                        rec_res,
+                        cls_res,
+                        cropped_img_list,
+                        self.recognize_txt,
+                        float(self.cfg.Cls.cls_thresh),
+                    )
+                except RapidOCRError as e:
+                    logger.warning(e)
 
         return det_res, cls_res, rec_res, cropped_img_list
 
@@ -593,3 +604,84 @@ def main(arg_list: Optional[List[str]] = None):
 
 if __name__ == "__main__":
     main()
+
+
+def apply_cls_flip_guard(
+    rec_res: TextRecOutput,
+    cls_res: TextClsOutput,
+    original_crops: List[np.ndarray],
+    recognize_fn: Callable[[List[np.ndarray]], TextRecOutput],
+    cls_thresh: float,
+) -> Tuple[TextRecOutput, TextClsOutput]:
+    """Re-recognize unflipped crops when the classifier rotated a line 180°.
+
+    The angle classifier can be confident and still wrong on a blurry crop.
+    Recognition of the rotated line is then usually worse than the upright
+    one, so keep the higher-scoring of the two.
+    """
+    if rec_res.txts is None or not cls_res.cls_res or not original_crops:
+        return rec_res, cls_res
+    if len(cls_res.cls_res) != len(rec_res.txts) or len(original_crops) != len(
+        rec_res.txts
+    ):
+        return rec_res, cls_res
+
+    flipped = [
+        index
+        for index, (label, score) in enumerate(cls_res.cls_res)
+        if "180" in str(label) and score > cls_thresh
+    ]
+    if not flipped:
+        return rec_res, cls_res
+
+    alternative = recognize_fn([original_crops[index] for index in flipped])
+    if alternative.txts is None or len(alternative.txts) != len(flipped):
+        return rec_res, cls_res
+
+    txts = list(rec_res.txts)
+    scores = list(rec_res.scores or [0.0] * len(txts))
+    word_results = (
+        list(rec_res.word_results) if rec_res.word_results is not None else None
+    )
+    imgs = list(rec_res.imgs) if rec_res.imgs is not None else None
+    cls_pairs = list(cls_res.cls_res)
+    cls_imgs = list(cls_res.img_list) if cls_res.img_list is not None else None
+    changed = False
+    alt_scores = list(alternative.scores or [0.0] * len(flipped))
+
+    for offset, index in enumerate(flipped):
+        if alt_scores[offset] <= scores[index]:
+            continue
+        changed = True
+        txts[index] = alternative.txts[offset]
+        scores[index] = alt_scores[offset]
+        if (
+            word_results is not None
+            and alternative.word_results is not None
+            and offset < len(alternative.word_results)
+            and index < len(word_results)
+        ):
+            word_results[index] = alternative.word_results[offset]
+        if imgs is not None and index < len(imgs):
+            imgs[index] = original_crops[index]
+        _label, cls_score = cls_pairs[index]
+        cls_pairs[index] = ("0", cls_score)
+        if cls_imgs is not None and index < len(cls_imgs):
+            cls_imgs[index] = original_crops[index]
+
+    if alternative.elapse:
+        rec_res.elapse = (rec_res.elapse or 0.0) + alternative.elapse
+    if not changed:
+        return rec_res, cls_res
+
+    rec_res.txts = tuple(txts)
+    rec_res.scores = scores
+    if word_results is not None:
+        rec_res.word_results = tuple(word_results)
+    if imgs is not None:
+        rec_res.imgs = imgs
+    cls_res.cls_res = cls_pairs
+    if cls_imgs is not None:
+        cls_res.img_list = cls_imgs
+    return rec_res, cls_res
+

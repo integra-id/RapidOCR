@@ -15,7 +15,13 @@ from rapidocr.postprocess.invoice import parse_invoice
 from rapidocr.postprocess.npwp import parse_npwp
 from rapidocr.service.app import create_app
 from rapidocr.service.pdf import parse_page_selection, rasterize_pdf
-from rapidocr.service.preprocess import apply_crop, preprocess_bgr
+from rapidocr.service.preprocess import (
+    DENOISE_RESIDUAL_MIN,
+    _maybe_denoise,
+    _noise_residual,
+    apply_crop,
+    preprocess_bgr,
+)
 from tests.test_pdf_ocr import _Engine, blank_pdf
 
 NPWP_LINES = [
@@ -147,3 +153,23 @@ def test_selected_pdf_pages_are_one_pass():
     body = response.json()
     assert body["page_count"] == 2
     assert set(body["outputs"]) == {"txt", "json"}
+
+
+
+def test_denoise_skips_smooth_and_moderate_texture():
+    smooth = np.full((64, 64, 3), 128, dtype=np.uint8)
+    assert _noise_residual(smooth) < DENOISE_RESIDUAL_MIN
+    assert _maybe_denoise(smooth) is smooth
+    assert DENOISE_RESIDUAL_MIN == 8.0
+
+
+def test_denoise_blurs_heavy_salt_pepper():
+    rng = np.random.default_rng(0)
+    image = np.full((128, 128, 3), 128, dtype=np.uint8)
+    noise = rng.integers(0, 256, image.shape, dtype=np.uint8)
+    mask = rng.random(image.shape[:2]) < 0.25
+    image[mask] = noise[mask]
+    assert _noise_residual(image) >= DENOISE_RESIDUAL_MIN
+    cleaned = _maybe_denoise(image)
+    assert cleaned is not image
+    assert _noise_residual(cleaned) < _noise_residual(image)

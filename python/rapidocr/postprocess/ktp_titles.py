@@ -23,6 +23,8 @@ _DOTTED_TAIL = re.compile(
     r"|M\.?\s*Si\.?"
     r"|M\.?\s*T\.?"
     r"|M\.?\s*M\.?"
+    r"|M\.?\s*B\.?\s*A\.?"
+    r"|MBA"
     r"|A\.?\s*Md\.?"
     r"|Ph\.?\s*D\.?"
     r")$"
@@ -56,6 +58,26 @@ def _is_title_token(token: str) -> Optional[str]:
     return canon_title(token)
 
 
+def _looks_like_title_fragment(token: str) -> bool:
+    compact = _compact(token)
+    if not compact or len(compact) > 4:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z.]{0,6}", token.strip(" ,")))
+
+
+def _merge_trailing_title_tokens(tokens: list[str]) -> Optional[tuple[str, int]]:
+    """Join short trailing fragments such as 'M' + 'B.A.' into MBA."""
+    max_parts = min(3, len(tokens))
+    for count in range(2, max_parts + 1):
+        parts = tokens[-count:]
+        if not all(_looks_like_title_fragment(part) for part in parts):
+            continue
+        title = canon_title("".join(parts))
+        if title:
+            return title, count
+    return None
+
+
 def split_titles(value: str) -> tuple[str, list[str], list[str]]:
     """Return (bare name, prefix titles, suffix titles)."""
     text = re.sub(r"\s+", " ", (value or "").replace("，", ",").strip(" ,"))
@@ -85,13 +107,19 @@ def split_titles(value: str) -> tuple[str, list[str], list[str]]:
         title = _is_title_token(tokens[-1])
         if title is None:
             glued = _DOTTED_TAIL.search(tokens[-1])
-            if glued is None:
+            if glued is not None:
+                title = canon_title(glued.group("title"))
+                body = glued.group("body")
+                if not title:
+                    break
+                tokens[-1] = body
+                suffixes.insert(0, title)
+                continue
+            merged = _merge_trailing_title_tokens(tokens)
+            if merged is None:
                 break
-            title = canon_title(glued.group("title"))
-            body = glued.group("body")
-            if not title:
-                break
-            tokens[-1] = body
+            title, count = merged
+            del tokens[-count:]
             suffixes.insert(0, title)
             continue
         suffixes.insert(0, title)

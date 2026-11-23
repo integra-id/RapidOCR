@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Declared after apt so a version bump can reuse the package layer.
-ARG RAPIDOCR_ID_VERSION=1.5.3
+ARG RAPIDOCR_ID_VERSION=1.5.4
 ENV RAPIDOCR_ID_VERSION=${RAPIDOCR_ID_VERSION}
 
 WORKDIR /src/python

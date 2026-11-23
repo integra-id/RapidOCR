@@ -3,6 +3,9 @@ Global:
 
     use_det: true
     use_cls: true
+    # When the angle classifier rotates a line 180°, also recognize the
+    # unflipped crop and keep the higher-scoring text.
+    cls_score_flip_guard: true
     use_rec: true
 
     use_preprocess_img: true
