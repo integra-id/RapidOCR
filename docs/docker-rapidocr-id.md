@@ -1,0 +1,225 @@
+# rapidocr-id
+
+Layanan OCR bahasa Indonesia yang bisa dijalankan sendiri. OCR umum adalah API utama. Parser dokumen, saat ini KTP, adalah tambahan.
+
+Versi layanan saat ini adalah **1.5.5**. `1.0.0` adalah rilis pertama. Angka itu untuk image `rapidocr-id`, bukan versi pustaka upstream RapidOCR.
+
+## Model di dalam image
+
+Model diunduh saat image dibangun, lalu disimpan di `/opt/rapidocr/models`. Permintaan tidak mengunduh model.
+
+| File | Peran | Bahasa | Ukuran |
+| --- | --- | --- | --- |
+| `PP-OCRv6_det_small.onnx` | deteksi teks | `id` | sekitar 9,5 MB |
+| `ch_ppocr_mobile_v2.0_cls_mobile.onnx` | sudut baris teks | bersama (`ch`) | sekitar 0,6 MB |
+| `PP-OCRv6_rec_small.onnx` | pengenalan teks | `id` | sekitar 20,3 MB |
+
+## Bangun dan jalankan
+
+Dari root repositori:
+
+```bash
+docker compose -f docker/docker-compose.rapidocr-id.yml up --build
+```
+
+Hanya membangun image lokal `rapidocr-id:1.5.5`:
+
+```bash
+docker build -f docker/Dockerfile.rapidocr-id --build-arg RAPIDOCR_ID_VERSION=1.5.5 -t rapidocr-id:1.5.5 .
+```
+
+Tarik image yang sudah diterbitkan:
+
+```bash
+docker pull ghcr.io/integra-id/rapidocr-id:1.5.5
+docker run --rm -p 8000:8000 ghcr.io/integra-id/rapidocr-id:1.5.5
+```
+
+Tag mengambang yang ikut diterbitkan: `1.0`, `1`, dan `latest`.
+
+## API
+
+Layanan mendengarkan di port 8000. Unggahan gambar adalah multipart dengan nama field `file`, paling besar 15 MB.
+
+```bash
+curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/version
+curl -s -F file=@halaman.jpg http://127.0.0.1:8000/ocr
+curl -s -F file=@ktp.jpg http://127.0.0.1:8000/parse/ktp
+```
+
+Setiap respons memakai `Content-Type: application/json`. Kunci di bawah selalu ada. Nilai yang tidak diketahui adalah `null`.
+
+`GET /health`
+
+```json
+{"status": "ok", "service": "rapidocr-id", "version": "1.5.5", "lang": "id", "models_ready": true}
+```
+
+`GET /version`
+
+```json
+{"service": "rapidocr-id", "version": "1.5.5"}
+```
+
+`POST /ocr`
+
+```json
+{
+  "service": "rapidocr-id",
+  "version": "1.5.5",
+  "elapse": 0.42,
+  "lines": [{"text": "NIK", "score": 0.99, "box": [[0, 1], [10, 1], [10, 2], [0, 2]]}]
+}
+```
+
+`POST /parse/ktp` dan alias `POST /ktp`. Parser hanya memakai urutan string OCR, bukan kotak, karena kotak pada foto HP mengacak field.
+
+```json
+{
+  "service": "rapidocr-id",
+  "version": "1.5.5",
+  "elapse": 0.42,
+  "lines": [{"text": "Namá", "score": 0.97}],
+  "fields": {"nik": "3327011112890001", "nama": "RISWANDI", "tempat_tgl_lahir": null}
+}
+```
+
+`fields` selalu memuat seluruh kunci. `field_scores` menyertakan skor baris yang mengisi field itu. `min_score` bawaan `0.5`. Baris di bawah ambang ditandai `below_min_score` dan tidak menjadi nilai field. Contoh di atas dipotong. Kesalahan memakai `{"detail": "pesan"}`.
+
+Parser lain: [NPWP](npwp.md) lewat `POST /parse/npwp`, dan [faktur](invoice.md) lewat `POST /parse/invoice`.
+
+## Praproses dan kontrol halaman
+
+`preprocess=true` (atau `full`) meluruskan foto yang miring sekitar 0,8–15 derajat, menghaluskan noise hanya bila residualnya tinggi, lalu menaikkan kontras dengan CLAHE. `preprocess=light` hanya CLAHE. `preprocess=false` melewatkan semuanya. Parser gambar memakai `true` secara bawaan. `/ocr` dan halaman PDF memakai `false`.
+
+PDF:
+
+- `pages=1-3` atau `pages=1,3,5`
+- `max_pages` paling besar 20
+- `dpi` dari 72 sampai 300 (bawaan raster 144 DPI)
+- `crop=x,y,w,h` dalam piksel. Pada PDF, crop hanya diterapkan ke halaman pertama yang dipilih.
+
+Batas keras tetap 20 halaman yang di-raster dan 20 MB.
+
+## Pekerjaan, kunci API, dan tabel
+
+`POST /jobs` menerima banyak berkas atau satu zip (`task` = `ocr`, `ktp`, `npwp`, atau `invoice`). Status ada di `GET /jobs/{id}`, hasil di `GET /jobs/{id}/result`. Direktori pekerjaan `/data/jobs` dihapus setelah 24 jam (`RAPIDOCR_JOB_TTL_HOURS`). `webhook` bersifat usaha terbaik: layanan hanya mengirim `id` dan `status`.
+
+Jika `RAPIDOCR_API_KEY` diisi, semua rute selain `/health` meminta header `X-API-Key` atau `Authorization: Bearer`. `RAPIDOCR_RATE_LIMIT` membatasi 60 permintaan per menit; `0` mematikan batas.
+
+Gambar besar diperkecil sebelum OCR. `RAPIDOCR_MAX_SIDE` (bawaan 1280) membatasi sisi terpanjang dalam piksel; `0` memakai batas pustaka 2000. `RAPIDOCR_MIN_SHORT` (bawaan 960) menjaga sisi pendek tidak turun di bawah itu, jadi foto KTP yang lebih ramping (2304×4096) tidak kehilangan baris kecil seperti Gol. Darah; foto 3072×4096 tetap dipotong ke 1280. `0` mematikan batas sisi pendek itu. `RAPIDOCR_WORKERS` (bawaan: setengah jumlah CPU, paling sedikit 2 dan paling banyak 4) membuat beberapa sesi model dalam satu proses, jadi permintaan yang datang bersamaan tidak mengantri di satu kunci global. `RAPIDOCR_INTRA_THREADS` (bawaan `cores / workers`) mengatur thread ONNX per sesi. Jangan memakai `uvicorn --workers` sebagai ganti pool ini: setiap proses akan memuat model lagi.
+
+`/health` dan `/version` menampilkan `workers`, `max_side`, dan `min_short`.
+
+
+`format=csv` menyusun tabel dari kotak yang sejajar. Markdown/HTML menaikkan baris yang lebih tinggi menjadi judul dan baris berbutir menjadi daftar. Sel yang digabung dan garis tabel tidak dikenali.
+
+```bash
+curl -s -F "files=@halaman1.jpg" -F "files=@halaman2.jpg" -F task=ocr http://127.0.0.1:8000/jobs
+curl -s http://127.0.0.1:8000/jobs/JOB_ID
+curl -s http://127.0.0.1:8000/jobs/JOB_ID/result
+curl -s -H "X-API-Key: $RAPIDOCR_API_KEY" -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?format=csv"
+curl -s -F file=@surat.jpg http://127.0.0.1:8000/detect/artifacts
+```
+
+## GPU, stempel, dan fine-tune
+
+Image bawaan tetap CPU. Image GPU terpisah dan tidak menggantikan Dockerfile produksi:
+
+```bash
+docker build -f docker/Dockerfile.rapidocr-id.gpu -t rapidocr-id:1.5.5-gpu .
+docker run --rm --gpus all -p 8000:8000 -e RAPIDOCR_PROVIDER=cuda rapidocr-id:1.5.5-gpu
+```
+
+`RAPIDOCR_PROVIDER=cuda` meminta CUDA. Jika provider itu tidak tersedia, layanan memakai CPU. `/health` dan `/version` memuat `provider`. OpenVINO dan TensorRT tetap di image pengembangan.
+
+`artifacts` pada JSON OCR dan parser berbentuk `{type, box, score}` dengan `type` `seal` atau `signature`. Logo dan judul berwarna bisa terbaca sebagai stempel. Deteksi ini heuristik warna, bentuk, dan kata di dekatnya, bukan model khusus.
+
+Cara menyalin ONNX hasil fine-tune ada di [finetune-id.md](finetune-id.md). Rilis ini tidak menyertakan bobot hasil latihan baru.
+
+```bash
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?pages=1,3&dpi=200&formats=json,md"
+curl -s -F file=@ktp.jpg "http://127.0.0.1:8000/parse/ktp?preprocess=true&min_score=0.5&crop=40,80,800,500"
+```
+
+## PDF
+
+`POST /ocr` dan `POST /ocr/pdf` menerima PDF multipart (`file`). Setiap halaman di-raster dengan pypdfium2 (pdfium ikut terpasang, Poppler tidak dipakai), lalu di-OCR. Batasnya 20 halaman dan 20 MB. `/parse/ktp` tetap hanya untuk gambar.
+
+Parameter `format` atau `output` (query atau form): `json` (bawaan), `txt`, `md` atau `markdown`, `html`.
+
+```bash
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?format=json"
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?format=txt"
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr?format=md"
+curl -s -F file=@dokumen.pdf -F output=html http://127.0.0.1:8000/ocr/pdf
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr/pdf?formats=json,md,html"
+curl -s -F file=@dokumen.pdf "http://127.0.0.1:8000/ocr?format=txt&format=json"
+```
+
+Satu nilai `format` tetap mengembalikan format itu saja. Beberapa format (`formats=json,md,html` atau `format` / `output` berulang) menjalankan OCR sekali, lalu membungkus hasilnya:
+
+```json
+{
+  "service": "rapidocr-id",
+  "version": "1.5.5",
+  "page_count": 2,
+  "elapse": 0.8,
+  "outputs": {
+    "json": {"service": "rapidocr-id", "version": "1.5.5", "page_count": 2, "pages": []},
+    "markdown": "# Page 1\n\n...",
+    "html": "<!DOCTYPE html>..."
+  }
+}
+```
+
+Content-Type: `application/json`, `text/plain`, `text/markdown`, atau `text/html`.
+
+JSON PDF:
+
+```json
+{
+  "service": "rapidocr-id",
+  "version": "1.5.5",
+  "page_count": 2,
+  "elapse": 0.8,
+  "text": "baris halaman satu\n\nbaris halaman dua",
+  "pages": [
+    {
+      "page": 1,
+      "elapse": 0.4,
+      "text": "baris halaman satu",
+      "lines": [{"text": "baris halaman satu", "score": 0.9, "box": [[1, 1], [20, 1], [20, 10], [1, 10]]}]
+    }
+  ]
+}
+```
+
+`text` menggabungkan halaman. Markdown memakai tata letak kotak RapidOCR bila kotak ada. `txt` menandai `--- page N ---`.
+
+## Rilis ke GHCR
+
+Workflow `.github/workflows/publish-rapidocr-id.yml` membangun image dan mendorongnya ke `ghcr.io/integra-id/rapidocr-id`. Izin yang dipakai adalah `packages: write` pada `GITHUB_TOKEN`.
+
+Untuk rilis `1.0.0`, naikkan versi di `python/rapidocr/service/version.py` dan `CHANGELOG.md`, commit di `development`, lalu buat tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Tag `v1.0.0` menghasilkan image `1.0.0`, `1.0`, `1`, dan `latest`.
+
+Rilis manual tanpa tag: jalankan workflow **Publish rapidocr-id** lewat `workflow_dispatch` dan isi versi semver, misalnya `1.0.0`.
+
+Image pengembangan di `docker/docker-compose.yaml` tetap terpisah. Compose itu me-mount source dan membuka shell.
+
+## Profil dokumen (opt-in)
+
+Jalur KTP dan default `/ocr` tidak berubah. Untuk scan dokumen (DMS), lihat [document-profile.md](document-profile.md). Ringkasnya: `POST /ocr/document` atau `/ocr?profile=document`, raster 200 DPI, tanpa cap 1280/960, model PP-OCRv6 tiny, klasifier sudut mati. Variabel `RAPIDOCR_DOC_*` hanya berlaku di jalur itu.
+
+```bash
+# Layanan KTP di :8000 tidak berubah. Sidecar dokumen opsional di :8001:
+docker compose -f docker/docker-compose.rapidocr-id.yml --profile document up
+```

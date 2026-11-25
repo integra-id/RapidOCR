@@ -3,6 +3,9 @@ Global:
 
     use_det: true
     use_cls: true
+    # When the angle classifier rotates a line 180°, also recognize the
+    # unflipped crop and keep the higher-scoring text.
+    cls_score_flip_guard: true
     use_rec: true
 
     use_preprocess_img: true
@@ -129,7 +132,8 @@ EngineConfig:
 
 Det:
     engine_type: "onnxruntime"
-    lang_type: "ch"
+    # Bahasa Indonesia. PP-OCRv6 keeps the shared multilingual detector.
+    lang_type: "id"
     model_type: "small"
     ocr_version: "PP-OCRv6"
 
@@ -152,6 +156,7 @@ Det:
 
 Cls:
     engine_type: "onnxruntime"
+    # Angle classifier is shared. Only the ch checkpoint exists.
     lang_type: "ch"
     model_type: "mobile"
     ocr_version: "PP-OCRv4"
@@ -168,7 +173,9 @@ Cls:
 
 Rec:
     engine_type: "onnxruntime"
-    lang_type: "ch"
+    # Bahasa Indonesia. PP-OCRv6 keeps the shared multilingual recognizer
+    # and ppocrv6 dictionary. Other languages stay selectable.
+    lang_type: "id"
     model_type: "small"
     ocr_version: "PP-OCRv6"
 

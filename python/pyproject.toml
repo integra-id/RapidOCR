@@ -66,6 +66,7 @@ namespaces = false
 [tool.setuptools.package-data]
 rapidocr = [
     "**/*.yaml",
+    "**/*.json",
     "**/*.pyi",
     "py.typed",
 ]

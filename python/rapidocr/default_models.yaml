@@ -110,6 +110,12 @@ model_routes:
 
   PP-OCRv6:
     aliases:
+      ind: id
+      indonesian: id
+      bahasa_indonesia: id
+      bahasa-indonesia: id
+      id_id: id
+      id-id: id
       zh: ch
       zh_cn: ch
       zh-cn: ch
@@ -149,6 +155,13 @@ model_routes:
   PP-OCRv5:
     det:
       aliases:
+        ind: multi
+        indonesian: multi
+        bahasa_indonesia: multi
+        bahasa-indonesia: multi
+        id_id: multi
+        id-id: multi
+        id: multi
         zh: ch
         zh_cn: ch
         zh-cn: ch
@@ -173,6 +186,13 @@ model_routes:
 
     rec:
       aliases:
+        ind: latin
+        indonesian: latin
+        bahasa_indonesia: latin
+        bahasa-indonesia: latin
+        id_id: latin
+        id-id: latin
+        id: latin
         zh: ch
         zh_cn: ch
         zh-cn: ch
@@ -223,6 +243,13 @@ model_routes:
   PP-OCRv4:
     det:
       aliases:
+        ind: multi
+        indonesian: multi
+        bahasa_indonesia: multi
+        bahasa-indonesia: multi
+        id_id: multi
+        id-id: multi
+        id: multi
         zh: ch
         zh_cn: ch
         zh-cn: ch
@@ -250,6 +277,13 @@ model_routes:
 
     rec:
       aliases:
+        ind: latin
+        indonesian: latin
+        bahasa_indonesia: latin
+        bahasa-indonesia: latin
+        id_id: latin
+        id-id: latin
+        id: latin
         zh: ch
         zh_cn: ch
         zh-cn: ch
@@ -1200,6 +1234,9 @@ fonts:
     SHA256: b337386a8e853ccba53c0c248bd06f025d7667b800ba74c72c66040d67315c6e
   latin:
     path: https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/resources/fonts/latin.ttf
+    SHA256: 1562fe5cbdaacab4a5880d6404ba05245d12f3a4478fe16021e976bc725ce5d5
+  id:
+    path: https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/resources/fonts/latin.ttf
     SHA256: 1562fe5cbdaacab4a5880d6404ba05245d12f3a4478fe16021e976bc725ce5d5
   ta:
     path: https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/resources/fonts/tamil.ttf

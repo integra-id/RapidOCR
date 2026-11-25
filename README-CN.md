@@ -32,7 +32,7 @@
 
 RapidOCR 是一款完全开源免费、支持离线快速部署的多平台多语言 OCR 工具，以极致的速度与广泛的兼容性为核心优势。
 
-**支持语言：** 默认支持中英文识别。其他支持的语言，参见文档：[模型列表](https://rapidai.github.io/RapidOCRDocs/main/model_list/)
+**支持语言：** 默认语言为印尼语（Bahasa Indonesia，`id`）。默认 PP-OCRv6 仍使用共享的多语言模型，中文、英文及其他语言可通过 `lang_type` 继续使用。其他支持的语言参见文档：[模型列表](https://rapidai.github.io/RapidOCRDocs/main/model_list/)
 
 **项目缘起：** 鉴于 [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) 在工程化方面仍有优化空间，为简化并加速 OCR 模型在各类终端设备上的推理部署，我们创新性地将 PaddleOCR 中的模型转换为高度兼容的 ONNX 格式，并基于 Python, C++, Java, C# 等多种编程语言，实现了跨平台的无缝移植，让开发者能够轻松上手、高效集成。
 
@@ -70,6 +70,8 @@ print(result)
 
 result.vis("vis_result.jpg")
 ```
+
+印尼身份证（KTP）可用 `parse_ktp` 把 OCR 行解析成字段，说明见 [docs/ktp.md](docs/ktp.md)。
 
 ### 📚 文档
 
@@ -132,6 +134,7 @@ RapidOCR 是一个基于 Apache2.0 许可的开源项目，其持续开发之所
 
 |Sponsors|Application|Introduction|
 |:---:|:---:|:---|
+|<img src="https://raw.githubusercontent.com/RapidAI/RapidOCRDocs-Assets/main/images/cf/81/cf81416c9356063e2fe7349347388f7089555981a8bea70045f02128a9dca406.jpg" width=65 height=65 style="border-radius: 19px; border: none;">|[无限星河](https://infistar.cc/)|Claude、GPT、Gemini、Grok、DeepSeek 等 200+ 官方纯血模型，一个 Key 搞定。低至官方 0.1 折（省 99%），上千线路安全冗余自动切换，每个模型都能验真，适合 OCR 识别后直接接大模型做文档总结与提取。RapidOCR 用户通过[专属链接](https://www.infistar.cc/register?aff=6K7TCVJX&ref_source=link)注册直接送 ¥5。|
 |<img src="https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/Quicker.jpg" width=65 height=65  style="border-radius: 12px; border: none;"/>|[Quicker](https://getquicker.net/)|您的指尖工作箱|
 
 #### 支持者

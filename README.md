@@ -33,7 +33,7 @@ Join our [Discord](https://discord.gg/33eyQJq498)
 
 RapidOCR is a completely open-source, free OCR tool that supports multi-platform, multi-language operation and rapid offline deployment. Its core advantages lie in extreme speed and extensive compatibility.
 
-**Supported Languages:** Default support for Chinese and English recognition. For other supported languages, please refer to the documentation: [Model List](https://rapidai.github.io/RapidOCRDocs/main/model_list/).
+**Supported Languages:** Bahasa Indonesia (`id`) is the default language. The default PP-OCRv6 pipeline still uses the shared multilingual detector and recognizer, so Chinese, English, and the other supported languages remain available by setting `lang_type`. See the [Model List](https://rapidai.github.io/RapidOCRDocs/main/model_list/).
 
 **Project Origin:** Considering that [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) still has room for optimization in engineering aspects, we innovatively converted the models in PaddleOCR into the highly compatible ONNX format to simplify and accelerate the inference deployment of OCR models on various terminal devices. Furthermore, we achieved seamless cross-platform porting based on multiple programming languages such as Python, C++, Java, and C#, enabling developers to get started easily and integrate efficiently.
 
@@ -61,15 +61,29 @@ pip install rapidocr onnxruntime
 ### 📋 Usage
 
 ```python
-from rapidocr import RapidOCR
+from rapidocr import LangDet, LangRec, RapidOCR
 
-engine = RapidOCR()
+engine = RapidOCR()  # Det/Rec default to Bahasa Indonesia (lang_type="id")
 
 img_url = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/master/resources/test_files/ch_en_num.jpg"
 result = engine(img_url)
 print(result)
 
 result.vis("vis_result.jpg")
+
+# Other languages stay selectable.
+engine_zh = RapidOCR(
+    params={"Det.lang_type": LangDet.CH, "Rec.lang_type": LangRec.CH}
+)
+```
+
+KTP (Indonesian ID card) lines can be turned into fields with `parse_ktp`. See [docs/ktp.md](docs/ktp.md).
+
+```python
+from rapidocr import parse_ktp
+
+fields = parse_ktp(result.txts, boxes=result.boxes)
+print(fields["nik"], fields["nama"])
 ```
 
 ### 🐳 Docker
@@ -145,6 +159,7 @@ RapidOCR is an Apache2.0-licensed open source project with its ongoing developme
 
 |Sponsors|Application|Introduction|
 |:---:|:---:|:---|
+|<img src="https://raw.githubusercontent.com/RapidAI/RapidOCRDocs-Assets/main/images/cf/81/cf81416c9356063e2fe7349347388f7089555981a8bea70045f02128a9dca406.jpg" width=65 height=65  style="border-radius: 19px; border: none;">|[infistar.cc](https://infistar.cc/)|One API key for 200+ genuine models including Claude, GPT, Gemini, Grok & DeepSeek. From 0.1x official pricing (up to 99% off), 1,000+ redundant routes with auto failover, verifiable models — ideal for piping OCR output into LLMs.RapidOCR users get ¥5 free via the exclusive [link](https://www.infistar.cc/register?aff=6K7TCVJX&ref_source=link).|
 |<img src="https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/Quicker.jpg" width=65 height=65  style="border-radius: 12px; border: none;"/>|[Quicker](https://getquicker.net/)|Your fingertip toolbox|
 
 #### Backers

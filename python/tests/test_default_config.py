@@ -179,7 +179,7 @@ def test_default_ppocrv6_model_config(
 
 def test_default_det_config(default_cfg):
     assert default_cfg.Det.engine_type == EngineType.ONNXRUNTIME
-    assert default_cfg.Det.lang_type == LangDet.CH
+    assert default_cfg.Det.lang_type == LangDet.ID
     assert default_cfg.Det.model_type == ModelType.SMALL
     assert default_cfg.Det.ocr_version == OCRVersion.PPOCRV6
     assert default_cfg.Det.task_type == TaskType.DET
@@ -213,7 +213,7 @@ def test_default_cls_config(default_cfg):
 
 def test_default_rec_config(default_cfg):
     assert default_cfg.Rec.engine_type == EngineType.ONNXRUNTIME
-    assert default_cfg.Rec.lang_type == LangRec.CH
+    assert default_cfg.Rec.lang_type == LangRec.ID
     assert default_cfg.Rec.model_type == ModelType.SMALL
     assert default_cfg.Rec.ocr_version == OCRVersion.PPOCRV6
     assert default_cfg.Rec.task_type == TaskType.REC
@@ -246,6 +246,9 @@ def test_default_engine_runtime_config(default_engine):
     assert default_engine.cfg.Rec.model_type == ModelType.SMALL
     assert default_engine.cfg.Cls.ocr_version == OCRVersion.PPOCRV4
     assert default_engine.cfg.Cls.model_type == ModelType.MOBILE
+    assert default_engine.cfg.Det.lang_type == LangDet.ID
+    assert default_engine.cfg.Rec.lang_type == LangRec.ID
+    assert default_engine.cfg.Cls.lang_type == LangCls.CH
 
 
 def test_update_det_params_before_model_load():

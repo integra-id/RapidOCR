@@ -34,6 +34,23 @@ def load_lang_mapping(lang_mapping: Dict[str, Any]) -> Dict[str, Any]:
     return flat_map
 
 
+COMMON_LANG_ALIASES = {
+    "zh": "ch",
+    "zh_cn": "ch",
+    "zh-cn": "ch",
+    "zh_tw": "chinese_cht",
+    "zh-tw": "chinese_cht",
+    "ja": "japan",
+    "jp": "japan",
+    "ko": "korean",
+    "ind": "id",
+    "indonesian": "id",
+    "bahasa_indonesia": "id",
+    "bahasa-indonesia": "id",
+    "id_id": "id",
+    "id-id": "id",
+}
+
 LANG_MAPPING = load_lang_mapping(_MODEL_CONFIG.get("lang_mapping", {}))
 
 
@@ -84,6 +101,12 @@ def list_supported_langs(
             values.update(_supported(routes))
 
     return sorted(values)
+
+
+def canonicalize_lang(lang_type: Union[Enum, str]) -> str:
+    """Normalize and map common aliases (including Bahasa Indonesia) to a code."""
+    lang = normalize_lang(lang_type)
+    return COMMON_LANG_ALIASES.get(lang, lang)
 
 
 def normalize_lang(lang_type: Union[Enum, str]) -> str:

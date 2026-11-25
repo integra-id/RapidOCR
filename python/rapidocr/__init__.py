@@ -8,6 +8,7 @@ from .utils.typings import EngineType, LangCls, LangDet, LangRec, ModelType, OCR
 
 if TYPE_CHECKING:
     from .main import RapidOCR
+    from .postprocess import parse_ktp
     from .utils.download_models import download_models
     from .utils.load_image import LoadImageError
     from .utils.vis_res import VisRes
@@ -17,6 +18,7 @@ _LAZY_IMPORTS = {
     "LoadImageError": ".utils.load_image",
     "VisRes": ".utils.vis_res",
     "download_models": ".utils.download_models",
+    "parse_ktp": ".postprocess",
 }
 
 
@@ -42,4 +44,5 @@ __all__ = [
     "OCRVersion",
     "VisRes",
     "download_models",
+    "parse_ktp",
 ]

@@ -1,0 +1,70 @@
+name: Publish rapidocr-id
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable semver without a leading v, for example 1.0.0"
+        required: false
+        type: string
+        default: "1.0.0"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull latest code
+        uses: actions/checkout@v4
+
+      - name: Resolve semver tags
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be stable semver X.Y.Z, got: ${VERSION}" >&2
+            exit 1
+          fi
+          IMAGE="ghcr.io/integra-id/rapidocr-id"
+          MAJOR="${VERSION%%.*}"
+          MINOR="${VERSION%.*}"
+          {
+            echo "version=${VERSION}"
+            echo "tags<<EOF"
+            echo "${IMAGE}:${VERSION}"
+            echo "${IMAGE}:${MINOR}"
+            echo "${IMAGE}:${MAJOR}"
+            echo "${IMAGE}:latest"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.rapidocr-id
+          push: true
+          tags: ${{ steps.version.outputs.tags }}
+          build-args: |
+            RAPIDOCR_ID_VERSION=${{ steps.version.outputs.version }}

@@ -1,0 +1,4 @@
+# -*- encoding: utf-8 -*-
+from .app import create_app, preload
+
+__all__ = ["create_app", "preload"]

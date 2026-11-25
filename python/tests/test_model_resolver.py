@@ -2,7 +2,7 @@
 # @Author: SWHL
 # @Contact: liekkaskono@163.com
 import pytest
-from rapidocr import ModelType, OCRVersion
+from rapidocr import LangRec, ModelType, OCRVersion
 from rapidocr.inference_engine.base import FileInfo, InferSession
 from rapidocr.utils.model_resolver import (
     MODEL_ROUTES,
@@ -165,3 +165,55 @@ def test_list_supported_langs_includes_cls():
         "ch",
         "multi",
     ]
+
+
+@pytest.mark.parametrize(
+    "lang_type", ["id", "indonesian", "bahasa_indonesia", LangRec.ID]
+)
+@pytest.mark.parametrize(
+    "task_type,expected_key",
+    [
+        (TaskType.DET, "multi_PP-OCRv6_det_small"),
+        (TaskType.REC, "multi_PP-OCRv6_rec_small"),
+    ],
+)
+def test_indonesian_is_supported_by_default_ppocrv6_model(
+    task_type, expected_key, lang_type
+):
+    model_key = route_to_model_key(
+        task_type, OCRVersion.PPOCRV6, lang_type, ModelType.SMALL
+    )
+
+    assert model_key == expected_key
+
+
+@pytest.mark.parametrize(
+    "version,task_type,expected_key",
+    [
+        (OCRVersion.PPOCRV4, TaskType.REC, "latin_PP-OCRv3_rec_mobile"),
+        (OCRVersion.PPOCRV5, TaskType.REC, "latin_PP-OCRv5_rec_mobile"),
+        (OCRVersion.PPOCRV4, TaskType.DET, "multi_PP-OCRv3_det_mobile"),
+        (OCRVersion.PPOCRV5, TaskType.DET, "ch_PP-OCRv5_det_mobile"),
+    ],
+)
+def test_legacy_indonesian_routes(version, task_type, expected_key):
+    for lang in ("id", "indonesian"):
+        assert (
+            route_to_model_key(task_type, version, lang, ModelType.MOBILE)
+            == expected_key
+        )
+
+
+def test_indonesian_v5_rec_uses_latin_dictionary():
+    model_info = InferSession.get_model_url(
+        FileInfo(
+            engine_type=EngineType.PADDLE,
+            ocr_version=OCRVersion.PPOCRV5,
+            task_type=TaskType.REC,
+            lang_type="indonesian",
+            model_type=ModelType.MOBILE,
+        )
+    )
+
+    assert model_info["model_dir"].endswith("/latin_PP-OCRv5_rec_mobile")
+    assert model_info["dict_url"].endswith("/ppocrv5_latin_dict.txt")

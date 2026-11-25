@@ -5,6 +5,7 @@ on:
       - main
 jobs:
   repo-sync:
+    if: github.repository == 'RapidAI/RapidOCR'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source codes
