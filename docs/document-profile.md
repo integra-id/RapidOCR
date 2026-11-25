@@ -69,4 +69,4 @@ Saat membangun image berikutnya, `python -m rapidocr.service.preload --document`
 - Default `RAPIDOCR_MAX_SIDE=1280`, `RAPIDOCR_MIN_SHORT=960`, DPI PDF 144.
 - Praproses parser KTP (default `full`).
 - Isi `/health` dan `/version`.
-- Versi layanan default tetap `1.5.4` pada patch ini agar klien produksi melihat field `version` yang sama. Rilis berikutnya boleh menaikkan versi setelah disetujui.
+- Versi layanan default adalah **1.5.5**.

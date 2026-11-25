@@ -6,13 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
-## [Unreleased]
+## [1.5.5] - 2026-11-25
 
 ### Added
 
-- Opt-in **document OCR profile** for full-page scans (DMS and similar) without changing the production KTP path. New routes: `POST /ocr/document`, `POST /ocr/document/pdf`, and `POST /jobs` with `task=document`. Existing `POST /ocr` and `POST /ocr/pdf` also accept `profile=document`. Clients that omit the new parameter keep the current defaults, models, preprocessing, downscale, PDF DPI, and JSON schema.
-- Document profile defaults: PDF raster at 200 DPI, no `RAPIDOCR_MAX_SIDE` / `RAPIDOCR_MIN_SHORT` downscale, `Global.max_side_len=2000` (library default; 3000+ dropped character accuracy on 200 DPI A4 scans), text-line classifier off, PP-OCRv6 **tiny** (override with `model=small` or `RAPIDOCR_DOC_MODEL`). Settings use the `RAPIDOCR_DOC_*` prefix. The document engine is loaded lazily on the first document request (`RAPIDOCR_DOC_PRELOAD=1` to load at startup). Optional `fix_digits=true` applies an `o`/`O` → `0` repair inside digit groups; it is off by default.
-- Optional Compose service `rapidocr-id-document` behind the `document` profile, same image, separate port. Default `docker compose up` is unchanged.
+- Opt-in document OCR profile (PR #2) for full-page scans, without changing KTP defaults. New routes: `POST /ocr/document`, `POST /ocr/document/pdf`, plus `profile=document` on the existing `/ocr` routes and `task=document` on `/jobs`. The document path uses PP-OCRv6 tiny models, the text-line classifier off, PDF raster at 200 DPI, no `RAPIDOCR_MAX_SIDE` / `RAPIDOCR_MIN_SHORT` cap, `Global.max_side_len=2000`, and a 1-worker document pool (`RAPIDOCR_DOC_*`). On a 9-page scan this used about 4× less CPU than the default small+cls path, with a small accuracy tradeoff. The document engine loads lazily unless `RAPIDOCR_DOC_PRELOAD=1`. Optional `fix_digits=true` maps `o`/`O` to `0` inside digit groups (off by default). An optional Compose sidecar `rapidocr-id-document` listens on port 8001; default `docker compose up` is unchanged.
+- The CPU and GPU images now also preload the tiny document models (`python -m rapidocr.service.preload --document`) so `/ocr/document` works offline.
+
+### Changed
+
+- Merged upstream RapidAI/RapidOCR main: the long-line classifier regression test is pinned to PP-OCRv4, and the README lists a new sponsor.
 
 ## [1.5.4] - 2026-11-23
 

@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Declared after apt so a version bump can reuse the package layer.
-ARG RAPIDOCR_ID_VERSION=1.5.4
+ARG RAPIDOCR_ID_VERSION=1.5.5
 ENV RAPIDOCR_ID_VERSION=${RAPIDOCR_ID_VERSION}
 
 WORKDIR /src/python
@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements-service.txt \
     && pip install --no-cache-dir --no-deps . \
     && mkdir -p "${RAPIDOCR_MODEL_DIR}" \
-    && python -m rapidocr.service.preload \
+    && python -m rapidocr.service.preload --document \
     && rm -rf /src /root/.cache/pip
 
 RUN useradd --create-home --uid 10001 rapidocr \

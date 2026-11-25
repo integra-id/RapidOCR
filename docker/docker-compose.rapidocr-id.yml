@@ -6,13 +6,13 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.rapidocr-id
       args:
-        RAPIDOCR_ID_VERSION: "1.5.4"
-    image: rapidocr-id:1.5.4
+        RAPIDOCR_ID_VERSION: "1.5.5"
+    image: rapidocr-id:1.5.5
     ports:
       - "8000:8000"
     environment:
       RAPIDOCR_MODEL_DIR: /opt/rapidocr/models
-      RAPIDOCR_ID_VERSION: "1.5.4"
+      RAPIDOCR_ID_VERSION: "1.5.5"
       RAPIDOCR_JOB_DIR: /data/jobs
       RAPIDOCR_JOB_TTL_HOURS: "24"
       # RAPIDOCR_WORKERS defaults to half the CPU count, clamped to 2–4.
@@ -28,12 +28,12 @@ services:
   # port 8001, path /ocr/document (or /ocr?profile=document on this sidecar).
   rapidocr-id-document:
     profiles: ["document"]
-    image: rapidocr-id:1.5.4
+    image: rapidocr-id:1.5.5
     ports:
       - "8001:8000"
     environment:
       RAPIDOCR_MODEL_DIR: /opt/rapidocr/models
-      RAPIDOCR_ID_VERSION: "1.5.4"
+      RAPIDOCR_ID_VERSION: "1.5.5"
       RAPIDOCR_JOB_DIR: /data/jobs-document
       RAPIDOCR_JOB_TTL_HOURS: "24"
       RAPIDOCR_DOC_PRELOAD: "1"

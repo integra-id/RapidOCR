@@ -3,7 +3,7 @@
 
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-ARG RAPIDOCR_ID_VERSION=1.5.4
+ARG RAPIDOCR_ID_VERSION=1.5.5
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -36,7 +36,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir "onnxruntime-gpu>=1.19" \
     && python -m pip install --no-cache-dir --no-deps . \
     && mkdir -p "${RAPIDOCR_MODEL_DIR}" \
-    && python -m rapidocr.service.preload \
+    && python -m rapidocr.service.preload --document \
     && rm -rf /src /root/.cache/pip
 
 RUN useradd --create-home --uid 10001 rapidocr \
