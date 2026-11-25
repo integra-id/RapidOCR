@@ -22,5 +22,26 @@ services:
       - rapidocr-jobs:/data/jobs
     restart: unless-stopped
 
+  # Optional document-profile sidecar. `docker compose up` does not start it.
+  #   docker compose -f docker/docker-compose.rapidocr-id.yml --profile document up
+  # Existing KTP / default OCR on port 8000 is unchanged. Point DMS clients at
+  # port 8001, path /ocr/document (or /ocr?profile=document on this sidecar).
+  rapidocr-id-document:
+    profiles: ["document"]
+    image: rapidocr-id:1.5.4
+    ports:
+      - "8001:8000"
+    environment:
+      RAPIDOCR_MODEL_DIR: /opt/rapidocr/models
+      RAPIDOCR_ID_VERSION: "1.5.4"
+      RAPIDOCR_JOB_DIR: /data/jobs-document
+      RAPIDOCR_JOB_TTL_HOURS: "24"
+      RAPIDOCR_DOC_PRELOAD: "1"
+      RAPIDOCR_DOC_WORKERS: "2"
+    volumes:
+      - rapidocr-jobs-document:/data/jobs-document
+    restart: unless-stopped
+
 volumes:
   rapidocr-jobs:
+  rapidocr-jobs-document:

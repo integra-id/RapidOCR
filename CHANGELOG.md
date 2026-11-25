@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 `1.0.0` is the first rapidocr-id service release. It is not the upstream RapidOCR library version.
 
+## [Unreleased]
+
+### Added
+
+- Opt-in **document OCR profile** for full-page scans (DMS and similar) without changing the production KTP path. New routes: `POST /ocr/document`, `POST /ocr/document/pdf`, and `POST /jobs` with `task=document`. Existing `POST /ocr` and `POST /ocr/pdf` also accept `profile=document`. Clients that omit the new parameter keep the current defaults, models, preprocessing, downscale, PDF DPI, and JSON schema.
+- Document profile defaults: PDF raster at 200 DPI, no `RAPIDOCR_MAX_SIDE` / `RAPIDOCR_MIN_SHORT` downscale, `Global.max_side_len=2000` (library default; 3000+ dropped character accuracy on 200 DPI A4 scans), text-line classifier off, PP-OCRv6 **tiny** (override with `model=small` or `RAPIDOCR_DOC_MODEL`). Settings use the `RAPIDOCR_DOC_*` prefix. The document engine is loaded lazily on the first document request (`RAPIDOCR_DOC_PRELOAD=1` to load at startup). Optional `fix_digits=true` applies an `o`/`O` → `0` repair inside digit groups; it is off by default.
+- Optional Compose service `rapidocr-id-document` behind the `document` profile, same image, separate port. Default `docker compose up` is unchanged.
+
 ## [1.5.4] - 2026-11-23
 
 ### Fixed
