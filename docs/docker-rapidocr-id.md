@@ -214,3 +214,12 @@ Tag `v1.0.0` menghasilkan image `1.0.0`, `1.0`, `1`, dan `latest`.
 Rilis manual tanpa tag: jalankan workflow **Publish rapidocr-id** lewat `workflow_dispatch` dan isi versi semver, misalnya `1.0.0`.
 
 Image pengembangan di `docker/docker-compose.yaml` tetap terpisah. Compose itu me-mount source dan membuka shell.
+
+## Profil dokumen (opt-in)
+
+Jalur KTP dan default `/ocr` tidak berubah. Untuk scan dokumen (DMS), lihat [document-profile.md](document-profile.md). Ringkasnya: `POST /ocr/document` atau `/ocr?profile=document`, raster 200 DPI, tanpa cap 1280/960, model PP-OCRv6 tiny, klasifier sudut mati. Variabel `RAPIDOCR_DOC_*` hanya berlaku di jalur itu.
+
+```bash
+# Layanan KTP di :8000 tidak berubah. Sidecar dokumen opsional di :8001:
+docker compose -f docker/docker-compose.rapidocr-id.yml --profile document up
+```

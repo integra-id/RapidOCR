@@ -56,6 +56,20 @@ from rapidocr.service.runtime import (
     requested_provider,
     worker_count,
 )
+from rapidocr.service.document import (
+    PROFILE_DOCUMENT,
+    apply_fix_digits_to_lines,
+    apply_fix_digits_to_text,
+    document_dpi,
+    document_max_side,
+    document_min_short,
+    document_preload_enabled,
+    get_or_create_document_pool,
+    parse_document_model,
+    parse_fix_digits,
+    parse_profile,
+    preload_document,
+)
 from rapidocr.service.pool import EnginePool, build_pool
 from rapidocr.service.version import SERVICE_NAME, SERVICE_VERSION
 from rapidocr.utils.load_image import LoadImage, LoadImageError
@@ -422,12 +436,21 @@ async def _read_upload(file: UploadFile, limit: int) -> bytes:
     return payload
 
 
-def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
+def create_app(
+    loader: Callable[[], Any] = preload,
+    document_loader: Optional[Callable[[], Any]] = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         pool = build_pool(loader)
         app.state.pool = pool
         app.state.engine = pool
+        app.state.document_loader = document_loader or preload_document
+        app.state.document_pool = None
+        if document_preload_enabled():
+            app.state.document_pool = get_or_create_document_pool(
+                app, app.state.document_loader, build_pool
+            )
         app.state.jobs = JobStore(
             job_root(), runner=lambda files, options: _run_job(app, files, options)
         )
@@ -502,6 +525,9 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         max_pages: Optional[int] = Query(None),
         dpi: Optional[float] = Query(None),
         crop: Optional[str] = Query(None),
+        profile: Optional[str] = Query(None),
+        model: Optional[str] = Query(None),
+        fix_digits: Optional[str] = Query(None),
     ):
         return await _recognize_upload(
             app,
@@ -519,6 +545,9 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             max_pages=max_pages,
             dpi=dpi,
             crop=crop,
+            profile=profile,
+            model=model,
+            fix_digits=fix_digits,
         )
 
     @app.post(
@@ -539,6 +568,9 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         max_pages: Optional[int] = Query(None),
         dpi: Optional[float] = Query(None),
         crop: Optional[str] = Query(None),
+        profile: Optional[str] = Query(None),
+        model: Optional[str] = Query(None),
+        fix_digits: Optional[str] = Query(None),
     ):
         return await _recognize_upload(
             app,
@@ -556,6 +588,95 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
             max_pages=max_pages,
             dpi=dpi,
             crop=crop,
+            profile=profile,
+            model=model,
+            fix_digits=fix_digits,
+        )
+
+    @app.post(
+        "/ocr/document",
+        tags=["document"],
+        responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+    )
+    async def ocr_document(
+        file: UploadFile = File(...),
+        formats: Optional[list[str]] = Query(None),
+        format: Optional[list[str]] = Query(None),
+        output: Optional[list[str]] = Query(None),
+        formats_form: Optional[list[str]] = Form(None, alias="formats"),
+        format_form: Optional[list[str]] = Form(None, alias="format"),
+        output_form: Optional[list[str]] = Form(None, alias="output"),
+        preprocess: Optional[str] = Query(None),
+        min_score: Optional[float] = Query(None),
+        pages: Optional[str] = Query(None),
+        max_pages: Optional[int] = Query(None),
+        dpi: Optional[float] = Query(None),
+        crop: Optional[str] = Query(None),
+        model: Optional[str] = Query(None),
+        fix_digits: Optional[str] = Query(None),
+    ):
+        return await _recognize_upload(
+            app,
+            file,
+            formats,
+            format,
+            output,
+            formats_form,
+            format_form,
+            output_form,
+            pdf_only=False,
+            preprocess=preprocess,
+            min_score=min_score,
+            pages=pages,
+            max_pages=max_pages,
+            dpi=dpi,
+            crop=crop,
+            profile=PROFILE_DOCUMENT,
+            model=model,
+            fix_digits=fix_digits,
+        )
+
+    @app.post(
+        "/ocr/document/pdf",
+        tags=["document"],
+        responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+    )
+    async def ocr_document_pdf(
+        file: UploadFile = File(...),
+        formats: Optional[list[str]] = Query(None),
+        format: Optional[list[str]] = Query(None),
+        output: Optional[list[str]] = Query(None),
+        formats_form: Optional[list[str]] = Form(None, alias="formats"),
+        format_form: Optional[list[str]] = Form(None, alias="format"),
+        output_form: Optional[list[str]] = Form(None, alias="output"),
+        preprocess: Optional[str] = Query(None),
+        min_score: Optional[float] = Query(None),
+        pages: Optional[str] = Query(None),
+        max_pages: Optional[int] = Query(None),
+        dpi: Optional[float] = Query(None),
+        crop: Optional[str] = Query(None),
+        model: Optional[str] = Query(None),
+        fix_digits: Optional[str] = Query(None),
+    ):
+        return await _recognize_upload(
+            app,
+            file,
+            formats,
+            format,
+            output,
+            formats_form,
+            format_form,
+            output_form,
+            pdf_only=True,
+            preprocess=preprocess,
+            min_score=min_score,
+            pages=pages,
+            max_pages=max_pages,
+            dpi=dpi,
+            crop=crop,
+            profile=PROFILE_DOCUMENT,
+            model=model,
+            fix_digits=fix_digits,
         )
 
     @app.post(
@@ -612,7 +733,7 @@ def create_app(loader: Callable[[], Any] = preload) -> FastAPI:
         preprocess: Optional[str] = Form(None),
         min_score: Optional[float] = Form(None),
     ):
-        if task not in {"ocr", "ktp", "npwp", "invoice"}:
+        if task not in {"ocr", "ktp", "npwp", "invoice", "document"}:
             raise HTTPException(status_code=400, detail="Unknown task.")
         uploads = []
         for item in files:
@@ -769,11 +890,20 @@ async def _recognize_upload(
     max_pages=None,
     dpi=None,
     crop=None,
+    profile=None,
+    model=None,
+    fix_digits=None,
 ):
     try:
         export_formats = collect_formats(
             formats, format, output, formats_form, format_form, output_form
         )
+        resolved_profile = parse_profile(profile)
+        # ``model`` and ``fix_digits`` are ignored unless the document profile is on,
+        # so a stray query string cannot change the default / KTP path.
+        use_fix = parse_fix_digits(fix_digits, False) if resolved_profile == PROFILE_DOCUMENT else False
+        if resolved_profile == PROFILE_DOCUMENT:
+            parse_document_model(model)
     except DocumentError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
@@ -809,19 +939,25 @@ async def _recognize_upload(
             max_pages,
             dpi,
             crop,
+            resolved_profile,
+            use_fix,
         )
     if mode == "off" and not crop:
         image = _try_decode(payload)
-        result = await _run_async(app, payload if image is None else image)
+        result = await _run_async(app, payload if image is None else image, resolved_profile)
     else:
         image = _prepare_page(_decode_image(payload), mode, crop, True)
-        result = await _run_async(app, image)
+        result = await _run_async(app, image, resolved_profile)
     artifacts = (
         [] if image is None else detect_artifacts(image, _ocr_lines(result, score))
     )
+    body = ocr_body(result, score, artifacts)
+    body = _apply_fix_digits_ocr_body(body, use_fix)
     if export_formats == ["json"]:
-        return OcrResponse(**ocr_body(result, score, artifacts))
-    return render_document(document_body([result], score, [image]), export_formats)
+        return OcrResponse(**body)
+    doc = document_body([result], score, [image])
+    doc = _apply_fix_digits_document_body(doc, use_fix)
+    return render_document(doc, export_formats)
 
 
 def _recognize_pdf(
@@ -834,23 +970,33 @@ def _recognize_pdf(
     max_pages,
     dpi,
     crop,
+    profile: str = "default",
+    fix_digits: bool = False,
 ):
     try:
-        images = rasterize_pdf(payload, dpi=dpi, pages=pages, max_pages=max_pages)
+        images = rasterize_pdf(
+            payload,
+            dpi=_effective_dpi(dpi, profile),
+            pages=pages,
+            max_pages=max_pages,
+        )
     except DocumentError as exc:
         raise _as_http(exc) from exc
     prepared = [
         _prepare_page(image, mode, crop, apply_region=index == 0)
         for index, image in enumerate(images)
     ]
-    results = _run_many(app, prepared)
-    return render_document(document_body(results, min_score, prepared), export_formats)
+    results = _run_many(app, prepared, profile)
+    body = document_body(results, min_score, prepared)
+    body = _apply_fix_digits_document_body(body, fix_digits)
+    return render_document(body, export_formats)
 
 
 def _run_job(app, files, options):
     task = options.get("task") or "ocr"
     score = _checked_min_score(options.get("min_score"))
-    default_mode = "off" if task == "ocr" else "full"
+    profile = PROFILE_DOCUMENT if task == "document" else "default"
+    default_mode = "off" if task in {"ocr", "document"} else "full"
     try:
         mode = parse_preprocess(options.get("preprocess"), default_mode)
         export_formats = collect_formats(options.get("formats"))
@@ -864,12 +1010,14 @@ def _run_job(app, files, options):
     documents = []
     for name, payload in files:
         if looks_like_pdf(payload, name, None):
-            images = rasterize_pdf(payload)
+            images = rasterize_pdf(
+                payload, dpi=_effective_dpi(None, profile) if profile == PROFILE_DOCUMENT else None
+            )
         else:
             images = [_decode_image(payload)]
         prepared = [_prepare_page(image, mode, None, False) for image in images]
-        results = _run_many(app, prepared)
-        if task == "ocr":
+        results = _run_many(app, prepared, profile)
+        if task in {"ocr", "document"}:
             body = document_body(results, score, prepared)
             documents.append(
                 {
@@ -918,39 +1066,82 @@ def _pool(app: FastAPI) -> EnginePool:
     return pool
 
 
-def _maybe_downscale(payload):
-    cap = max_side()
+def _maybe_downscale(payload, profile: str = "default"):
+    if profile == PROFILE_DOCUMENT:
+        cap = document_max_side()
+        floor = document_min_short()
+    else:
+        cap = max_side()
+        floor = min_short()
     if cap <= 0 or not isinstance(payload, np.ndarray):
         return payload, 1.0, 1.0
-    return resize_max_side(payload, cap, min_short=min_short())
+    return resize_max_side(payload, cap, min_short=floor)
 
 
-async def _run_async(app: FastAPI, payload):
+def _effective_dpi(dpi, profile: str):
+    if dpi is not None:
+        return dpi
+    if profile == PROFILE_DOCUMENT:
+        return document_dpi()
+    return None
+
+
+def _apply_fix_digits_ocr_body(body: dict, enabled: bool) -> dict:
+    if not enabled:
+        return body
+    body = dict(body)
+    body["lines"] = apply_fix_digits_to_lines(body.get("lines") or [], True)
+    return body
+
+
+def _apply_fix_digits_document_body(body: dict, enabled: bool) -> dict:
+    if not enabled:
+        return body
+    body = dict(body)
+    pages = []
+    for page in body.get("pages") or []:
+        item = dict(page)
+        item["lines"] = apply_fix_digits_to_lines(item.get("lines") or [], True)
+        item["text"] = apply_fix_digits_to_text(item.get("text") or "", True)
+        pages.append(item)
+    body["pages"] = pages
+    body["text"] = apply_fix_digits_to_text(body.get("text") or "", True)
+    return body
+
+
+def _profile_pool(app: FastAPI, profile: str) -> EnginePool:
+    if profile != PROFILE_DOCUMENT:
+        return _pool(app)
+    loader = getattr(app.state, "document_loader", preload_document)
+    return get_or_create_document_pool(app, loader, build_pool)
+
+
+async def _run_async(app: FastAPI, payload, profile: str = "default"):
     # Keep the event loop free so concurrent HTTP requests can use the pool.
-    return await asyncio.to_thread(_run, app, payload)
+    return await asyncio.to_thread(_run, app, payload, profile)
 
 
-async def _run_many_async(app: FastAPI, images):
-    return await asyncio.to_thread(_run_many, app, images)
+async def _run_many_async(app: FastAPI, images, profile: str = "default"):
+    return await asyncio.to_thread(_run_many, app, images, profile)
 
 
-def _run(app: FastAPI, payload):
+def _run(app: FastAPI, payload, profile: str = "default"):
     try:
-        image, scale_x, scale_y = _maybe_downscale(payload)
-        return scale_result_boxes(_pool(app).run(image), scale_x, scale_y)
+        image, scale_x, scale_y = _maybe_downscale(payload, profile)
+        return scale_result_boxes(_profile_pool(app, profile).run(image), scale_x, scale_y)
     except LoadImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _run_many(app: FastAPI, images):
+def _run_many(app: FastAPI, images, profile: str = "default"):
     try:
         prepared = []
         scales = []
         for item in images:
-            image, scale_x, scale_y = _maybe_downscale(item)
+            image, scale_x, scale_y = _maybe_downscale(item, profile)
             prepared.append(image)
             scales.append((scale_x, scale_y))
-        results = _pool(app).run_many(prepared)
+        results = _profile_pool(app, profile).run_many(prepared)
         return [
             scale_result_boxes(result, scale_x, scale_y)
             for result, (scale_x, scale_y) in zip(results, scales)
